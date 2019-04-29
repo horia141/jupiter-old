@@ -3,9 +3,9 @@
     "version": "0.0.0",
     "license": "UNLICENSED",
     "dependencies": {
+        "typescript": "=3.4.5"
     },
-    "devDependencies": {
-    },
+    "devDependencies": {},
     "engines": {
         "node": ">=8",
         "yarn": ">=1.9"
