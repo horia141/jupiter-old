@@ -1,0 +1,13 @@
+{
+    "name": "jupiter",
+    "version": "0.0.0",
+    "license": "UNLICENSED",
+    "dependencies": {
+    },
+    "devDependencies": {
+    },
+    "engines": {
+        "node": ">=8",
+        "yarn": ">=1.9"
+    }
+}
