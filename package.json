@@ -9,12 +9,13 @@
     "engines": {
         "node": ">=8",
         "yarn": ">=1.9"
-    }
+    },
     "dependencies": {
+        "moment": "^2.24.0",
         "typescript": "=3.4.5",
-        "yargs": "^13.2.2"
+        "yargs": "=13.2.2"
     },
     "devDependencies": {
-        "@types/yargs": "^13.0.0"
-    },
+        "@types/yargs": "=13.0.0"
+    }
 }
