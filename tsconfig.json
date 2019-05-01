@@ -10,10 +10,10 @@
         "inlineSourceMap": true,
         "inlineSources": true,
         "skipLibCheck": true,
-        "declaration": true,
         "emitDecoratorMetadata": true,
         "experimentalDecorators": true,
-        "jsx": "react"
+        "jsx": "react",
+        "outDir": ".build/server"
     },
     "include": [
         "./src/**/*.ts"

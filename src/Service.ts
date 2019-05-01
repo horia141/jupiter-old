@@ -2,6 +2,10 @@ import * as moment from "moment";
 
 export class Service {
 
+    public saySomething(): void {
+        console.log("Hello");
+    }
+
 }
 
 export interface Plan {
