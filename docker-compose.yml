@@ -1,0 +1,11 @@
+version: '2'
+services:
+  postgres:
+    container_name: jupiter-postgres
+    image: postgres
+    ports:
+      - ${POSTGRES_PORT}:5432
+    environment:
+      - POSTGRES_USER=${POSTGRES_USERNAME}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DATABASE}

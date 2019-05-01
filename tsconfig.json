@@ -3,7 +3,6 @@
         "target": "es2017",
         "module": "commonjs",
         "moduleResolution": "node",
-        "allowJs": true,
         "strict": true,
         "noImplicitReturns": true,
         "noUnusedLocals": true,
