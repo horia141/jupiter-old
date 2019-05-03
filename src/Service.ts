@@ -1,28 +1,53 @@
 import * as moment from "moment";
+import * as knex from "knex";
+import {Transaction} from "knex";
 
 export class Service {
 
-    public createPlan(): void {
+    private static readonly DEFAULT_USER_ID = 1;
+
+    private static readonly PLAN_TABLE = "core.plans";
+    private static readonly PLAN_FIELDS = [
+        "id",
+        "version_major",
+        "version_minor",
+        "plan"
+    ];
+
+    public constructor(
+        private readonly conn: knex) {
 
     }
 
-    public async getLatestPlan(): Promise<GetLatestPlanResponse> {
+    static getEmptyPlan(): Plan {
         return {
-            plan: {
-                version: {
-                    major: 1,
-                    minor: 10
-                },
-                goals: [{
-                    title: "Buy a boat",
-                    description: "",
-                    range: GoalRange.FIVE_YEARS,
-                    subgoals: [],
-                    metrics: [],
-                    tasks: [],
-                    boards: []
-                }]
+            version: {
+                major: 1,
+                minor: 1
+            },
+            goals: []
+        };
+    }
+
+    public async getLatestPlan(): Promise<GetLatestPlanResponse> {
+        await this.conn.transaction(async (trx: Transaction) => {
+            const planRows= await trx
+                .from(Service.PLAN_TABLE)
+                .select(Service.PLAN_FIELDS)
+                .orderBy("version_major", "desc")
+                .orderBy("version_minor", "desc")
+                .where("user_id", Service.DEFAULT_USER_ID)
+                .limit(1);
+
+            if (planRows.length === 0) {
+                console.log("this");
+            } else {
+                console.log("that");
             }
+        });
+
+        return {
+            plan: Service.getEmptyPlan()
         };
     }
 

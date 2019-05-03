@@ -6,7 +6,9 @@ CREATE TABLE core.plans (
    -- Core properties
    version_major INT NOT NULL,
    version_minor INT NOT NULL,
-   plan JSONB NOT NULL
+   plan JSONB NOT NULL,
+   -- Foreign keys
+   user_id INT NOT NULL
 );
 `);
 

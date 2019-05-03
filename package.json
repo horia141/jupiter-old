@@ -6,7 +6,9 @@
         "infra:start": "./scripts/infra-start.sh",
         "infra:reset": "./scripts/infra-reset.sh",
         "infra:psql": "./scripts/infra-psql.sh",
-        "migrate": "./scripts/migrate.sh"
+        "migrate": "./scripts/migrate.sh",
+        "serve": "./scripts/serve.sh",
+        "serve:watch": "./scripts/serve-watch.sh"
     },
     "engines": {
         "node": ">=8",
