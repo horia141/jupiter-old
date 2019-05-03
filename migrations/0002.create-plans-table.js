@@ -1,4 +1,4 @@
-exports.up = (knex, Promise) => knex.schema.raw(`
+exports.up = (knex) => knex.schema.raw(`
 CREATE TABLE core.plans (
    -- Primary key
    id Serial,
@@ -10,6 +10,6 @@ CREATE TABLE core.plans (
 );
 `);
 
-exports.down = (knex, Promise) => knex.schema.raw(
+exports.down = (knex) => knex.schema.raw(
     'DROP TABLE IF EXISTS core.plans'
 );

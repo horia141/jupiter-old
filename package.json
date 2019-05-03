@@ -4,21 +4,26 @@
     "license": "UNLICENSED",
     "scripts": {
         "infra:start": "./scripts/infra-start.sh",
-        "infra:psql": "./scripts/infra-psql.sh"
+        "infra:reset": "./scripts/infra-reset.sh",
+        "infra:psql": "./scripts/infra-psql.sh",
+        "migrate": "./scripts/migrate.sh"
     },
     "engines": {
         "node": ">=8",
         "yarn": ">=1.9"
     },
     "dependencies": {
+        "knex": "^0.16.5",
         "moment": "^2.24.0",
+        "pg": "^7.10.0",
         "typescript": "=3.4.5",
         "vorpal": "^1.12.0",
         "yargs": "=13.2.2"
     },
     "devDependencies": {
+        "@types/knex": "^0.16.1",
         "@types/node": "^11.13.9",
-        "@types/yargs": "=13.0.0",
-        "@types/vorpal": "^1.11.0"
+        "@types/vorpal": "^1.11.0",
+        "@types/yargs": "=13.0.0"
     }
 }

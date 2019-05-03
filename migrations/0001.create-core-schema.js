@@ -1,7 +1,7 @@
-exports.up = (knex, Promise) => knex.schema.raw(
+exports.up = (knex) => knex.schema.raw(
     'CREATE SCHEMA core'
 );
 
-exports.down = (knex, Promise) => knex.schema.raw(
+exports.down = (knex) => knex.schema.raw(
     'DROP SCHEMA IF EXISTS core'
 );
