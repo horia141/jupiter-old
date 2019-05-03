@@ -2,10 +2,93 @@ import * as moment from "moment";
 
 export class Service {
 
+    public createPlan(): void {
+
+    }
+
+    public async getLatestPlan(): Promise<GetLatestPlanResponse> {
+        return {
+            plan: {
+                version: {
+                    major: 1,
+                    minor: 10
+                },
+                goals: [{
+                    title: "Buy a boat",
+                    description: "",
+                    range: GoalRange.FIVE_YEARS,
+                    subgoals: [],
+                    metrics: [],
+                    tasks: [],
+                    boards: []
+                }]
+            }
+        };
+    }
+
+    public async createGoal(req: CreateGoalRequest): Promise<CreateGoalResponse> {
+        return {
+            plan: {
+                version: {
+                    major: 1,
+                    minor: 10
+                },
+                goals: [{
+                    title: "Buy a boat",
+                    description: "",
+                    range: GoalRange.FIVE_YEARS,
+                    subgoals: [],
+                    metrics: [],
+                    tasks: [],
+                    boards: []
+                }, {
+                    title: req.title,
+                    description: "",
+                    range: GoalRange.FIVE_YEARS,
+                    subgoals: [],
+                    metrics: [],
+                    tasks: [],
+                    boards: []
+                }]
+            }
+        }
+    }
+
+    public createMetric(): void {
+
+    }
+
+    public createTask(): void {
+
+    }
+
+    public markGoalAsDone(): void {
+    }
+
+    public recordForMetric(): void {
+
+    }
+
+    public markTaskAsDone(): void {
+
+    }
+
     public saySomething(): void {
         console.log("Hello");
     }
 
+}
+
+export interface GetLatestPlanResponse {
+    plan: Plan;
+}
+
+export interface CreateGoalRequest {
+    title: string;
+}
+
+export interface CreateGoalResponse {
+    plan: Plan;
 }
 
 export interface Plan {

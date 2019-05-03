@@ -14,6 +14,8 @@
 config/*.secrets
 config/*.json
 .terraform
+.idea
 
 # Temp stuff
 scripts/terraform
+yarn-error.log

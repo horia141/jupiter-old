@@ -4,7 +4,8 @@ CREATE TABLE core.plans (
    id Serial,
    PRIMARY KEY (id),
    -- Core properties
-   version VARCHAR(30) NOT NULL,
+   version_major INT NOT NULL,
+   version_minor INT NOT NULL,
    plan JSONB NOT NULL
 );
 `);
