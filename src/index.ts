@@ -4,7 +4,7 @@ import * as knex from "knex";
 
 import { Service } from "./Service";
 
-function main() {
+async function main() {
 
     const conn = knex({
         client: "pg",
@@ -16,7 +16,9 @@ function main() {
             password: process.env.POSTGRES_PASSWORD as string
         }
     });
+
     const service = new Service(conn);
+    await service.init();
 
     const vorpal = (Vorpal as any)();
 

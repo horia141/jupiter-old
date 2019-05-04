@@ -2,6 +2,13 @@ import * as moment from "moment";
 import * as knex from "knex";
 import {Transaction} from "knex";
 
+export class ServiceError extends Error {
+
+    public constructor(message: string) {
+        super(message);
+    }
+}
+
 export class Service {
 
     private static readonly DEFAULT_USER_ID = 1;
@@ -19,19 +26,46 @@ export class Service {
 
     }
 
-    static getEmptyPlan(): Plan {
-        return {
-            version: {
-                major: 1,
-                minor: 1
-            },
-            goals: []
-        };
+    public async init(): Promise<void> {
+        await this.createPlanIfDoesNotExist();
     }
 
     public async getLatestPlan(): Promise<GetLatestPlanResponse> {
-        await this.conn.transaction(async (trx: Transaction) => {
-            const planRows= await trx
+        const planRows = await this.conn
+            .from(Service.PLAN_TABLE)
+            .select(Service.PLAN_FIELDS)
+            .orderBy("version_major", "desc")
+            .orderBy("version_minor", "desc")
+            .where("user_id", Service.DEFAULT_USER_ID)
+            .limit(1);
+
+        if (planRows.length === 0) {
+            throw new ServiceError(`No plan for user ${Service.DEFAULT_USER_ID}`);
+        }
+
+        const planRow = planRows[0];
+        const plan = Service.dbPlanToPlan(planRow);
+
+        return {
+            plan: plan
+        };
+    }
+
+    public async createGoal(req: CreateGoalRequest): Promise<CreateGoalResponse> {
+
+        const newGoal = {
+            title: req.title,
+            description: "",
+            range: GoalRange.LIFETIME,
+            subgoals: [],
+            metrics: [],
+            tasks: [],
+            boards: [],
+            canBeRemoved: true
+        };
+
+        const newPlan = await this.conn.transaction(async (trx: Transaction) => {
+            const planRows = await trx
                 .from(Service.PLAN_TABLE)
                 .select(Service.PLAN_FIELDS)
                 .orderBy("version_major", "desc")
@@ -40,43 +74,30 @@ export class Service {
                 .limit(1);
 
             if (planRows.length === 0) {
-                console.log("this");
-            } else {
-                console.log("that");
+                throw new ServiceError(`No plan for user ${Service.DEFAULT_USER_ID}`);
             }
+
+            const planRow = planRows[0];
+            const plan = Service.dbPlanToPlan(planRow);
+
+            plan.goals.push(newGoal);
+            plan.version.minor++;
+
+            await trx
+                .from(Service.PLAN_TABLE)
+                .insert({
+                    version_major: plan.version.major,
+                    version_minor: plan.version.minor,
+                    plan: plan,
+                    user_id: Service.DEFAULT_USER_ID
+                });
+
+            return plan;
         });
 
         return {
-            plan: Service.getEmptyPlan()
+            plan: newPlan
         };
-    }
-
-    public async createGoal(req: CreateGoalRequest): Promise<CreateGoalResponse> {
-        return {
-            plan: {
-                version: {
-                    major: 1,
-                    minor: 10
-                },
-                goals: [{
-                    title: "Buy a boat",
-                    description: "",
-                    range: GoalRange.FIVE_YEARS,
-                    subgoals: [],
-                    metrics: [],
-                    tasks: [],
-                    boards: []
-                }, {
-                    title: req.title,
-                    description: "",
-                    range: GoalRange.FIVE_YEARS,
-                    subgoals: [],
-                    metrics: [],
-                    tasks: [],
-                    boards: []
-                }]
-            }
-        }
     }
 
     public createMetric(): void {
@@ -98,8 +119,42 @@ export class Service {
 
     }
 
-    public saySomething(): void {
-        console.log("Hello");
+    private async createPlanIfDoesNotExist(): Promise<void> {
+        await this.conn.transaction(async (trx: Transaction) => {
+            const planRows= await trx
+                .from(Service.PLAN_TABLE)
+                .select(Service.PLAN_FIELDS)
+                .where("user_id", Service.DEFAULT_USER_ID)
+                .limit(1);
+
+            if (planRows.length === 0) {
+                const initialPlan = Service.getEmptyPlan();
+
+                await trx
+                    .from(Service.PLAN_TABLE)
+                    .insert({
+                        version_major: initialPlan.version.major,
+                        version_minor: initialPlan.version.minor,
+                        plan: initialPlan,
+                        user_id: Service.DEFAULT_USER_ID
+                    });
+            }
+        });
+    }
+
+    private static dbPlanToPlan(planRow: any): Plan {
+        // TODO(horia141): Proper deserialization here!
+        return planRow["plan"];
+    }
+
+    private static getEmptyPlan(): Plan {
+        return {
+            version: {
+                major: 1,
+                minor: 1
+            },
+            goals: []
+        };
     }
 
 }
@@ -135,6 +190,7 @@ export interface Goal {
     metrics: Metric[];
     tasks: Task[];
     boards: Board[];
+    canBeRemoved: boolean;
 }
 
 export enum GoalRange {
