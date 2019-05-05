@@ -2,7 +2,7 @@ import * as Vorpal from "vorpal";
 import {Args} from "vorpal";
 import * as knex from "knex";
 
-import { Service } from "./Service";
+import { Service } from "./service/Service";
 
 async function main() {
 
