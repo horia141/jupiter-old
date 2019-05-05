@@ -21,6 +21,13 @@ export class Service {
         "plan"
     ];
 
+    private static readonly SCHEDULE_TABLE = "core.schedules";
+    private static readonly SCHEDULE_FIELDs = [
+        "id",
+        "schedule",
+        "plan_id"
+    ];
+
     public constructor(
         private readonly conn: knex) {
 
