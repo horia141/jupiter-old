@@ -22,7 +22,7 @@ export class Service {
     ];
 
     private static readonly SCHEDULE_TABLE = "core.schedules";
-    private static readonly SCHEDULE_FIELDs = [
+    private static readonly SCHEDULE_FIELDS = [
         "id",
         "schedule",
         "plan_id"
@@ -243,4 +243,17 @@ export interface SubTask {
 
 export interface Board {
     title: string;
+}
+
+export interface Schedule {
+    tasks: ScheduledTask[];
+    metrics: CollectedMetric[];
+}
+
+export interface ScheduledTask {
+
+}
+
+export interface CollectedMetric {
+
 }
