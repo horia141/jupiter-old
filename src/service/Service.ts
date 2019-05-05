@@ -23,7 +23,6 @@ export class Service {
 
     public constructor(
         private readonly conn: knex) {
-
     }
 
     public async init(): Promise<void> {
@@ -31,20 +30,7 @@ export class Service {
     }
 
     public async getLatestPlan(): Promise<GetLatestPlanResponse> {
-        const planRows = await this.conn
-            .from(Service.PLAN_TABLE)
-            .select(Service.PLAN_FIELDS)
-            .orderBy("version_major", "desc")
-            .orderBy("version_minor", "desc")
-            .where("user_id", Service.DEFAULT_USER_ID)
-            .limit(1);
-
-        if (planRows.length === 0) {
-            throw new ServiceError(`No plan for user ${Service.DEFAULT_USER_ID}`);
-        }
-
-        const planRow = planRows[0];
-        const plan = Service.dbPlanToPlan(planRow);
+        const plan = await this.dbGetLatestPlan(this.conn, Service.DEFAULT_USER_ID);
 
         return {
             plan: plan
@@ -65,32 +51,12 @@ export class Service {
         };
 
         const newPlan = await this.conn.transaction(async (trx: Transaction) => {
-            const planRows = await trx
-                .from(Service.PLAN_TABLE)
-                .select(Service.PLAN_FIELDS)
-                .orderBy("version_major", "desc")
-                .orderBy("version_minor", "desc")
-                .where("user_id", Service.DEFAULT_USER_ID)
-                .limit(1);
-
-            if (planRows.length === 0) {
-                throw new ServiceError(`No plan for user ${Service.DEFAULT_USER_ID}`);
-            }
-
-            const planRow = planRows[0];
-            const plan = Service.dbPlanToPlan(planRow);
+            const plan = await this.dbGetLatestPlan(trx, Service.DEFAULT_USER_ID);
 
             plan.goals.push(newGoal);
             plan.version.minor++;
 
-            await trx
-                .from(Service.PLAN_TABLE)
-                .insert({
-                    version_major: plan.version.major,
-                    version_minor: plan.version.minor,
-                    plan: plan,
-                    user_id: Service.DEFAULT_USER_ID
-                });
+            await this.dbSavePlan(trx, Service.DEFAULT_USER_ID, plan);
 
             return plan;
         });
@@ -121,25 +87,45 @@ export class Service {
 
     private async createPlanIfDoesNotExist(): Promise<void> {
         await this.conn.transaction(async (trx: Transaction) => {
-            const planRows= await trx
-                .from(Service.PLAN_TABLE)
-                .select(Service.PLAN_FIELDS)
-                .where("user_id", Service.DEFAULT_USER_ID)
-                .limit(1);
+            try {
+                await this.dbGetLatestPlan(trx, Service.DEFAULT_USER_ID);
+            } catch (e) {
+                if (!e.message.startsWith("No plan for user")) {
+                    throw e;
+                }
 
-            if (planRows.length === 0) {
                 const initialPlan = Service.getEmptyPlan();
-
-                await trx
-                    .from(Service.PLAN_TABLE)
-                    .insert({
-                        version_major: initialPlan.version.major,
-                        version_minor: initialPlan.version.minor,
-                        plan: initialPlan,
-                        user_id: Service.DEFAULT_USER_ID
-                    });
+                await this.dbSavePlan(trx, Service.DEFAULT_USER_ID, initialPlan);
             }
         });
+    }
+
+    private async dbGetLatestPlan(conn: knex, userId: number): Promise<Plan> {
+        const planRows = await conn
+            .from(Service.PLAN_TABLE)
+            .select(Service.PLAN_FIELDS)
+            .orderBy("version_major", "desc")
+            .orderBy("version_minor", "desc")
+            .where("user_id", userId)
+            .limit(1);
+
+        if (planRows.length === 0) {
+            throw new ServiceError(`No plan for user ${userId}`);
+        }
+
+        const planRow = planRows[0];
+        return Service.dbPlanToPlan(planRow);
+    }
+
+    private async dbSavePlan(conn: knex, userId: number, plan: Plan): Promise<void> {
+        await conn
+            .from(Service.PLAN_TABLE)
+            .insert({
+                version_major: plan.version.major,
+                version_minor: plan.version.minor,
+                plan: plan,
+                user_id: userId
+            });
     }
 
     private static dbPlanToPlan(planRow: any): Plan {
