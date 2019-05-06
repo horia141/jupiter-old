@@ -1,6 +1,6 @@
 import * as knex from "knex";
 import {Transaction} from "knex";
-import {GoalRange, Plan} from "./entities";
+import {Goal, GoalRange, MetricType, Plan} from "./entities";
 
 export class ServiceError extends Error {
 
@@ -40,6 +40,7 @@ export class Service {
     public async createGoal(req: CreateGoalRequest): Promise<CreateGoalResponse> {
 
         const newGoal = {
+            id: -1,
             title: req.title,
             description: "",
             range: GoalRange.LIFETIME,
@@ -55,6 +56,9 @@ export class Service {
 
             plan.goals.push(newGoal);
             plan.version.minor++;
+            plan.idSerialHack++;
+            newGoal.id = plan.idSerialHack;
+            plan.goalsById.set(newGoal.id, newGoal);
 
             await this.dbSavePlan(trx, Service.DEFAULT_USER_ID, plan);
 
@@ -66,8 +70,36 @@ export class Service {
         };
     }
 
-    public createMetric(): void {
+    public async createMetric(req: CreateMetricRequest): Promise<CreateMetricResponse> {
 
+        const newMetric = {
+            id: -1,
+            title: req.title,
+            type: MetricType.COUNTER
+        };
+
+        const newPlan = await this.conn.transaction(async (trx: Transaction) => {
+            const plan = await this.dbGetLatestPlan(trx, Service.DEFAULT_USER_ID);
+
+            const goal = plan.goalsById.get(req.goalId);
+
+            if (goal === undefined) {
+                throw new ServiceError(`Goal with id ${req.goalId} does not exist for user ${Service.DEFAULT_USER_ID}`);
+            }
+
+            goal.metrics.push(newMetric);
+            plan.version.minor++;
+            plan.idSerialHack++;
+            newMetric.id = plan.idSerialHack;
+
+            await this.dbSavePlan(trx, Service.DEFAULT_USER_ID, plan);
+
+            return plan;
+        });
+
+        return {
+            plan: newPlan
+        };
     }
 
     public createTask(): void {
@@ -123,14 +155,36 @@ export class Service {
             .insert({
                 version_major: plan.version.major,
                 version_minor: plan.version.minor,
-                plan: plan,
+                plan: Service.planToDbPlan(plan),
                 user_id: userId
             });
     }
 
     private static dbPlanToPlan(planRow: any): Plan {
         // TODO(horia141): Proper deserialization here!
-        return planRow["plan"];
+        const dbPlan = planRow["plan"];
+
+        const plan = {
+            version: dbPlan.version,
+            goals: dbPlan.goals,
+            idSerialHack: dbPlan.idSerialHack,
+            goalsById: new Map<number, Goal>()
+        };
+
+        // TODO(horia141): deal with subgoals here!
+        for (const [_goalIdx, goal] of plan.goals.entries()) {
+            plan.goalsById.set(goal.id, goal);
+        }
+
+        return plan;
+    }
+
+    private static planToDbPlan(plan: Plan): any {
+        return {
+            version: plan.version,
+            goals: plan.goals,
+            idSerialHack: plan.idSerialHack
+        };
     }
 
     private static getEmptyPlan(): Plan {
@@ -139,7 +193,9 @@ export class Service {
                 major: 1,
                 minor: 1
             },
-            goals: []
+            goals: [],
+            idSerialHack: 0,
+            goalsById: new Map<number, Goal>()
         };
     }
 
@@ -157,4 +213,11 @@ export interface CreateGoalResponse {
     plan: Plan;
 }
 
+export interface CreateMetricRequest {
+    goalId: number;
+    title: string;
+}
 
+export interface CreateMetricResponse {
+    plan: Plan;
+}

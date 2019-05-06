@@ -3,6 +3,8 @@ import * as moment from "moment";
 export interface Plan {
     version: PlanVersion;
     goals: Goal[];
+    idSerialHack: number;
+    goalsById: Map<number, Goal>;
 }
 
 export interface PlanVersion {
@@ -11,6 +13,7 @@ export interface PlanVersion {
 }
 
 export interface Goal {
+    id: number;
     title: string;
     description: string;
     range: GoalRange;
@@ -31,6 +34,7 @@ export enum GoalRange {
 }
 
 export interface Metric {
+    id: number;
     title: string;
     type: MetricType;
 }
@@ -41,6 +45,7 @@ export enum MetricType {
 }
 
 export interface Task {
+    id: number;
     title: string;
     description: string;
     priority: TaskPriority;
@@ -58,11 +63,13 @@ export enum TaskPriority {
 }
 
 export interface SubTask {
+    id: number;
     title: string;
     subtasks: SubTask[];
 }
 
 export interface Board {
+    id: number;
     title: string;
 }
 

@@ -45,6 +45,21 @@ async function main() {
         });
 
     vorpal
+        .command("plan:new-metric <title...> <goalId>")
+        .description("Adds a new metric to a goal")
+        .action(async function (this: Vorpal, args: Args) {
+            const title = args.title.join(" ");
+            const goalId = Number.parseInt(args.goalId);
+            const req = {
+                title: title,
+                goalId: goalId
+            };
+            const res = await service.createMetric(req);
+            const resRes = JSON.stringify(res, undefined, 2);
+            this.log(resRes);
+        });
+
+    vorpal
         .delimiter(">> ")
         .show();
 }
