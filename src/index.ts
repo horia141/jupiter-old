@@ -3,6 +3,7 @@ import {Args} from "vorpal";
 import * as knex from "knex";
 
 import { Service } from "./service/Service";
+import {Goal, Plan} from "./service/entities";
 
 async function main() {
 
@@ -27,8 +28,7 @@ async function main() {
         .description("Displays the current plan.")
         .action(async function (this: Vorpal, _args: Args) {
             const res = await service.getLatestPlan();
-            const resRes = JSON.stringify(res, undefined, 2);
-            this.log(resRes);
+            this.log(printPlan(res.plan));
         });
 
     vorpal
@@ -40,8 +40,7 @@ async function main() {
                 title: title
             };
             const res = await service.createGoal(req);
-            const resRes = JSON.stringify(res, undefined, 2);
-            this.log(resRes);
+            this.log(printPlan(res.plan));
         });
 
     vorpal
@@ -55,13 +54,42 @@ async function main() {
                 goalId: goalId
             };
             const res = await service.createMetric(req);
-            const resRes = JSON.stringify(res, undefined, 2);
-            this.log(resRes);
+            this.log(printPlan(res.plan));
         });
 
     vorpal
         .delimiter(">> ")
         .show();
+}
+
+function printPlan(plan: Plan): string {
+    const res = []
+
+    for (const goal of plan.goals) {
+        res.push(printGoal(goal));
+    }
+
+    return res.join("\n");
+}
+
+function printGoal(goal: Goal): string {
+    const res = [];
+
+    res.push(`${goal.title}:`);
+
+    res.push("  metrics:");
+
+    for (const metric of goal.metrics) {
+        res.push(`    ${metric.title}`);
+    }
+
+    res.push("  tasks:");
+
+    for (const task of goal.tasks) {
+        res.push(`    ${task.title}`);
+    }
+
+    return res.join("\n");
 }
 
 main();
