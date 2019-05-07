@@ -77,7 +77,9 @@ async function main() {
 }
 
 function printPlan(plan: Plan): string {
-    const res = []
+    const res = [];
+
+    res.push(`id=${plan.id}`);
 
     for (const goal of plan.goals) {
         res.push(printGoal(goal));

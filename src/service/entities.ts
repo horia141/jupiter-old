@@ -1,15 +1,16 @@
 import * as moment from "moment";
 
+export interface Version {
+    major: number;
+    minor: number;
+}
+
 export interface Plan {
-    version: PlanVersion;
+    id: number;
+    version: Version;
     goals: Goal[];
     idSerialHack: number;
     goalsById: Map<number, Goal>;
-}
-
-export interface PlanVersion {
-    major: number;
-    minor: number;
 }
 
 export interface Goal {
@@ -74,14 +75,27 @@ export interface Board {
 }
 
 export interface Schedule {
-    tasks: ScheduledTask[];
+    id: number;
+    version: Version;
     metrics: CollectedMetric[];
-}
-
-export interface ScheduledTask {
-
+    tasks: ScheduledTask[];
+    idSerialHack: number;
 }
 
 export interface CollectedMetric {
+    id: number;
+    metricId: number;
+    samples: CollectedMetricEntry[];
+}
 
+export interface CollectedMetricEntry {
+    id: number;
+    collectedMetricId: number;
+    timestamp: moment.Moment;
+    value: number;
+}
+
+export interface ScheduledTask {
+    id: number;
+    taskId: number;
 }
