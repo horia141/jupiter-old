@@ -58,6 +58,20 @@ async function main() {
         });
 
     vorpal
+        .command("plan:new-task <title...> <goalId>")
+        .description("Add a new task to a goal")
+        .action(async function (this: Vorpal, args: Args) {
+            const title = args.title.join(" ");
+            const goalId = Number.parseInt(args.goalId);
+            const req = {
+                title: title,
+                goalId: goalId
+            };
+            const res = await service.createTask(req);
+            this.log(printPlan(res.plan));
+        });
+
+    vorpal
         .delimiter(">> ")
         .show();
 }
@@ -75,18 +89,24 @@ function printPlan(plan: Plan): string {
 function printGoal(goal: Goal): string {
     const res = [];
 
-    res.push(`${goal.title}:`);
+    res.push(`[${goal.id}] ${goal.title}:`);
 
-    res.push("  metrics:");
+    if (goal.metrics.length > 0) {
 
-    for (const metric of goal.metrics) {
-        res.push(`    ${metric.title}`);
+        res.push("  metrics:");
+
+        for (const metric of goal.metrics) {
+            res.push(`    [${metric.id}] ${metric.title}`);
+        }
     }
 
-    res.push("  tasks:");
+    if (goal.tasks.length > 0) {
 
-    for (const task of goal.tasks) {
-        res.push(`    ${task.title}`);
+        res.push("  tasks:");
+
+        for (const task of goal.tasks) {
+            res.push(`    [${task.id}] ${task.title}`);
+        }
     }
 
     return res.join("\n");

@@ -47,8 +47,8 @@ export enum MetricType {
 export interface Task {
     id: number;
     title: string;
-    description: string;
     priority: TaskPriority;
+    description?: string;
     deadline?: moment.Moment;
     schedule?: any;
     reminderPolicy?: any;

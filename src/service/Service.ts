@@ -1,6 +1,6 @@
 import * as knex from "knex";
 import {Transaction} from "knex";
-import {Goal, GoalRange, MetricType, Plan} from "./entities";
+import {Goal, GoalRange, Metric, MetricType, Plan, Task, TaskPriority} from "./entities";
 
 export class ServiceError extends Error {
 
@@ -39,7 +39,7 @@ export class Service {
 
     public async createGoal(req: CreateGoalRequest): Promise<CreateGoalResponse> {
 
-        const newGoal = {
+        const newGoal: Goal = {
             id: -1,
             title: req.title,
             description: "",
@@ -72,7 +72,7 @@ export class Service {
 
     public async createMetric(req: CreateMetricRequest): Promise<CreateMetricResponse> {
 
-        const newMetric = {
+        const newMetric: Metric = {
             id: -1,
             title: req.title,
             type: MetricType.COUNTER
@@ -102,8 +102,37 @@ export class Service {
         };
     }
 
-    public createTask(): void {
+    public async createTask(req: CreateTaskRequest): Promise<CreateTaskResponse> {
 
+        const newTask: Task = {
+            id: -1,
+            title: req.title,
+            priority: TaskPriority.NORMAL,
+            inProgress: false
+        };
+
+        const newPlan = await this.conn.transaction(async (trx: Transaction) => {
+            const plan = await this.dbGetLatestPlan(trx, Service.DEFAULT_USER_ID);
+
+            const goal = plan.goalsById.get(req.goalId);
+
+            if (goal === undefined) {
+                throw new ServiceError(`Goal with id ${req.goalId} does not exist for user ${Service.DEFAULT_USER_ID}`);
+            }
+
+            goal.tasks.push(newTask);
+            plan.version.minor++;
+            plan.idSerialHack++;
+            newTask.id = plan.idSerialHack;
+
+            await this.dbSavePlan(trx, Service.DEFAULT_USER_ID, plan);
+
+            return plan;
+        });
+
+        return {
+            plan: newPlan
+        };
     }
 
     public markGoalAsDone(): void {
@@ -219,5 +248,14 @@ export interface CreateMetricRequest {
 }
 
 export interface CreateMetricResponse {
+    plan: Plan;
+}
+
+export interface CreateTaskRequest {
+    goalId: number;
+    title: string;
+}
+
+export interface CreateTaskResponse {
     plan: Plan;
 }
