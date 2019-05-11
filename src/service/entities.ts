@@ -77,7 +77,7 @@ export interface Board {
 export interface Schedule {
     id: number;
     version: Version;
-    metrics: CollectedMetric[];
+    collectedMetrics: CollectedMetric[];
     tasks: ScheduledTask[];
     idSerialHack: number;
 }

@@ -3,7 +3,7 @@ import {Args} from "vorpal";
 import * as knex from "knex";
 
 import { Service } from "./service/Service";
-import {Goal, Plan} from "./service/entities";
+import {CollectedMetric, Goal, Plan, Schedule} from "./service/entities";
 
 async function main() {
 
@@ -25,8 +25,8 @@ async function main() {
 
     vorpal
         .command("plan:show")
-        .description("Displays the current plan.")
-        .action(async function (this: Vorpal, _args: Args) {
+        .description("Displays the current plan")
+        .action(async function (this: Vorpal) {
             const res = await service.getLatestPlan();
             this.log(printPlan(res.plan));
         });
@@ -72,6 +72,14 @@ async function main() {
         });
 
     vorpal
+        .command("schedule:show")
+        .description("Displays the current schedule")
+        .action(async function (this: Vorpal) {
+            const res = await service.getLatestSchedule();
+            this.log(printSchedule(res.schedule));
+        });
+
+    vorpal
         .delimiter(">> ")
         .show();
 }
@@ -95,7 +103,7 @@ function printGoal(goal: Goal): string {
 
     if (goal.metrics.length > 0) {
 
-        res.push("  metrics:");
+        res.push("  collectedMetrics:");
 
         for (const metric of goal.metrics) {
             res.push(`    [${metric.id}] ${metric.title}`);
@@ -109,6 +117,35 @@ function printGoal(goal: Goal): string {
         for (const task of goal.tasks) {
             res.push(`    [${task.id}] ${task.title}`);
         }
+    }
+
+    return res.join("\n");
+}
+
+function printSchedule(schedule: Schedule): string {
+    const res = [];
+
+    res.push(`id=${schedule.id}`);
+
+    if (schedule.collectedMetrics.length > 0) {
+
+        res.push("  metrics:");
+
+        for (const collectedMetric of schedule.collectedMetrics) {
+            res.push(printCollectedMetric(collectedMetric));
+        }
+    }
+
+    return res.join("\n");
+}
+
+function printCollectedMetric(collectedMetric: CollectedMetric): string {
+    const res = [];
+
+    res.push(`    [${collectedMetric.id}] ${collectedMetric.metricId}:`);
+
+    for (const sample of collectedMetric.samples) {
+        res.push(`     - ${sample.timestamp} => ${sample.value}`);
     }
 
     return res.join("\n");

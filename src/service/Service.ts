@@ -1,7 +1,7 @@
 import * as knex from "knex";
 import {Transaction} from "knex";
 
-import {Goal, GoalRange, Metric, MetricType, Plan, Schedule, Task, TaskPriority} from "./entities";
+import {CollectedMetric, Goal, GoalRange, Metric, MetricType, Plan, Schedule, Task, TaskPriority} from "./entities";
 
 export class ServiceError extends Error {
 
@@ -62,6 +62,7 @@ export class Service {
 
         const newPlan = await this.conn.transaction(async (trx: Transaction) => {
             const plan = await this.dbGetLatestPlan(trx, Service.DEFAULT_USER_ID);
+            const schedule = await this.dbGetLatestSchedule(trx, Service.DEFAULT_USER_ID, plan.id);
 
             plan.goals.push(newGoal);
             plan.version.minor++;
@@ -69,7 +70,11 @@ export class Service {
             newGoal.id = plan.idSerialHack;
             plan.goalsById.set(newGoal.id, newGoal);
 
-            return await this.dbSavePlan(trx, Service.DEFAULT_USER_ID, plan);
+            schedule.version.minor++;
+
+            const newPlan = await this.dbSavePlan(trx, Service.DEFAULT_USER_ID, plan);
+            await this.dbSaveSchedule(trx, Service.DEFAULT_USER_ID, newPlan.id, schedule);
+            return newPlan;
         });
 
         return {
@@ -85,8 +90,15 @@ export class Service {
             type: MetricType.COUNTER
         };
 
+        const newCollectedMetric: CollectedMetric = {
+            id: -1,
+            metricId: -1,
+            samples: []
+        };
+
         const newPlan = await this.conn.transaction(async (trx: Transaction) => {
             const plan = await this.dbGetLatestPlan(trx, Service.DEFAULT_USER_ID);
+            const schedule = await this.dbGetLatestSchedule(trx, Service.DEFAULT_USER_ID, plan.id);
 
             const goal = plan.goalsById.get(req.goalId);
 
@@ -99,7 +111,15 @@ export class Service {
             plan.idSerialHack++;
             newMetric.id = plan.idSerialHack;
 
-            return await this.dbSavePlan(trx, Service.DEFAULT_USER_ID, plan);
+            schedule.collectedMetrics.push(newCollectedMetric);
+            schedule.version.minor++;
+            schedule.idSerialHack++;
+            newCollectedMetric.id = schedule.idSerialHack;
+            newCollectedMetric.metricId = newMetric.id;
+
+            const newPlan = await this.dbSavePlan(trx, Service.DEFAULT_USER_ID, plan);
+            await this.dbSaveSchedule(trx, Service.DEFAULT_USER_ID, newPlan.id, schedule);
+            return newPlan;
         });
 
         return {
@@ -118,6 +138,7 @@ export class Service {
 
         const newPlan = await this.conn.transaction(async (trx: Transaction) => {
             const plan = await this.dbGetLatestPlan(trx, Service.DEFAULT_USER_ID);
+            const schedule = await this.dbGetLatestSchedule(trx, Service.DEFAULT_USER_ID, plan.id);
 
             const goal = plan.goalsById.get(req.goalId);
 
@@ -130,7 +151,11 @@ export class Service {
             plan.idSerialHack++;
             newTask.id = plan.idSerialHack;
 
-            return await this.dbSavePlan(trx, Service.DEFAULT_USER_ID, plan);
+            schedule.version.minor++;
+
+            const newPlan = await this.dbSavePlan(trx, Service.DEFAULT_USER_ID, plan);
+            await this.dbSaveSchedule(trx, Service.DEFAULT_USER_ID, newPlan.id, schedule);
+            return newPlan;
         });
 
         return {
@@ -147,6 +172,17 @@ export class Service {
 
     public markTaskAsDone(): void {
 
+    }
+
+    public async getLatestSchedule(): Promise<GetLatestScheduleResponse> {
+        const schedule = await this.conn.transaction(async (trx: Transaction) => {
+            const plan = await this.dbGetLatestPlan(trx, Service.DEFAULT_USER_ID);
+            return await this.dbGetLatestSchedule(trx, Service.DEFAULT_USER_ID, plan.id);
+        });
+
+        return {
+            schedule: schedule
+        };
     }
 
     private async createPlanIfDoesNotExist(): Promise<void> {
@@ -199,7 +235,7 @@ export class Service {
         return Service.dbPlanToPlan(planRows[0]);
     }
 
-    public async dbGetLatestSchedule(conn: knex, userId: number, planId: number): Promise<Schedule> {
+    private async dbGetLatestSchedule(conn: knex, userId: number, planId: number): Promise<Schedule> {
         const scheduleRows = await conn
             .from(Service.SCHEDULE_TABLE)
             .select(Service.SCHEDULE_FIELDS)
@@ -248,7 +284,7 @@ export class Service {
         };
 
         // TODO(horia141): deal with subgoals here!
-        for (const [_goalIdx, goal] of plan.goals.entries()) {
+        for (const [, goal] of plan.goals.entries()) {
             plan.goalsById.set(goal.id, goal);
         }
 
@@ -270,7 +306,7 @@ export class Service {
         const schedule = {
             id: scheduleRow["id"],
             version: dbSchedule.version,
-            metrics: dbSchedule.metric,
+            collectedMetrics: dbSchedule.collectedMetrics,
             tasks: dbSchedule.tasks,
             idSerialHack: dbSchedule.idSerialHack
         };
@@ -281,8 +317,9 @@ export class Service {
     private static scheduleToDbSchedule(schedule: Schedule): any {
         return {
             version: schedule.version,
-            metrics: schedule.metrics,
-            tasks: schedule.tasks
+            collectedMetrics: schedule.collectedMetrics,
+            tasks: schedule.tasks,
+            idSerialHack: schedule.idSerialHack
         };
     }
 
@@ -303,7 +340,7 @@ export class Service {
                 minor: 1
             },
             tasks: [],
-            metrics: [],
+            collectedMetrics: [],
             idSerialHack: 0
         }];
     }
@@ -338,4 +375,8 @@ export interface CreateTaskRequest {
 
 export interface CreateTaskResponse {
     plan: Plan;
+}
+
+export interface GetLatestScheduleResponse {
+    schedule: Schedule;
 }
