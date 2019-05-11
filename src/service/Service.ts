@@ -35,7 +35,7 @@ export class Service {
     }
 
     public async init(): Promise<void> {
-        await this.createPlanIfDoesNotExist();
+        await this.dbCreatePlanIfDoesNotExist();
     }
 
     public async getLatestPlan(): Promise<GetLatestPlanResponse> {
@@ -60,25 +60,20 @@ export class Service {
             canBeRemoved: true
         };
 
-        const newPlan = await this.conn.transaction(async (trx: Transaction) => {
-            const plan = await this.dbGetLatestPlan(trx, Service.DEFAULT_USER_ID);
-            const schedule = await this.dbGetLatestSchedule(trx, Service.DEFAULT_USER_ID, plan.id);
+        const newPlanAndSchedule = await this.dbModifyPlanAndSchedule((planAndSchedule) => {
+            planAndSchedule.plan.goals.push(newGoal);
+            planAndSchedule.plan.version.minor++;
+            planAndSchedule.plan.idSerialHack++;
+            newGoal.id = planAndSchedule.plan.idSerialHack;
+            planAndSchedule.plan.goalsById.set(newGoal.id, newGoal);
 
-            plan.goals.push(newGoal);
-            plan.version.minor++;
-            plan.idSerialHack++;
-            newGoal.id = plan.idSerialHack;
-            plan.goalsById.set(newGoal.id, newGoal);
+            planAndSchedule.schedule.version.minor++;
 
-            schedule.version.minor++;
-
-            const newPlan = await this.dbSavePlan(trx, Service.DEFAULT_USER_ID, plan);
-            await this.dbSaveSchedule(trx, Service.DEFAULT_USER_ID, newPlan.id, schedule);
-            return newPlan;
+            return planAndSchedule;
         });
 
         return {
-            plan: newPlan
+            plan: newPlanAndSchedule.plan
         };
     }
 
@@ -96,34 +91,29 @@ export class Service {
             samples: []
         };
 
-        const newPlan = await this.conn.transaction(async (trx: Transaction) => {
-            const plan = await this.dbGetLatestPlan(trx, Service.DEFAULT_USER_ID);
-            const schedule = await this.dbGetLatestSchedule(trx, Service.DEFAULT_USER_ID, plan.id);
-
-            const goal = plan.goalsById.get(req.goalId);
+        const newPlanAndSchedule = await this.dbModifyPlanAndSchedule(planAndSchedule => {
+            const goal = planAndSchedule.plan.goalsById.get(req.goalId);
 
             if (goal === undefined) {
                 throw new ServiceError(`Goal with id ${req.goalId} does not exist for user ${Service.DEFAULT_USER_ID}`);
             }
 
             goal.metrics.push(newMetric);
-            plan.version.minor++;
-            plan.idSerialHack++;
-            newMetric.id = plan.idSerialHack;
+            planAndSchedule.plan.version.minor++;
+            planAndSchedule.plan.idSerialHack++;
+            newMetric.id = planAndSchedule.plan.idSerialHack;
 
-            schedule.collectedMetrics.push(newCollectedMetric);
-            schedule.version.minor++;
-            schedule.idSerialHack++;
-            newCollectedMetric.id = schedule.idSerialHack;
+            planAndSchedule.schedule.collectedMetrics.push(newCollectedMetric);
+            planAndSchedule.schedule.version.minor++;
+            planAndSchedule.schedule.idSerialHack++;
+            newCollectedMetric.id = planAndSchedule.schedule.idSerialHack;
             newCollectedMetric.metricId = newMetric.id;
 
-            const newPlan = await this.dbSavePlan(trx, Service.DEFAULT_USER_ID, plan);
-            await this.dbSaveSchedule(trx, Service.DEFAULT_USER_ID, newPlan.id, schedule);
-            return newPlan;
+            return planAndSchedule;
         });
 
         return {
-            plan: newPlan
+            plan: newPlanAndSchedule.plan
         };
     }
 
@@ -136,30 +126,25 @@ export class Service {
             inProgress: false
         };
 
-        const newPlan = await this.conn.transaction(async (trx: Transaction) => {
-            const plan = await this.dbGetLatestPlan(trx, Service.DEFAULT_USER_ID);
-            const schedule = await this.dbGetLatestSchedule(trx, Service.DEFAULT_USER_ID, plan.id);
-
-            const goal = plan.goalsById.get(req.goalId);
+        const newPlanAndSchedule = await this.dbModifyPlanAndSchedule(planAndSchedule => {
+            const goal = planAndSchedule.plan.goalsById.get(req.goalId);
 
             if (goal === undefined) {
                 throw new ServiceError(`Goal with id ${req.goalId} does not exist for user ${Service.DEFAULT_USER_ID}`);
             }
 
             goal.tasks.push(newTask);
-            plan.version.minor++;
-            plan.idSerialHack++;
-            newTask.id = plan.idSerialHack;
+            planAndSchedule.plan.version.minor++;
+            planAndSchedule.plan.idSerialHack++;
+            newTask.id = planAndSchedule.plan.idSerialHack;
 
-            schedule.version.minor++;
+            planAndSchedule.schedule.version.minor++;
 
-            const newPlan = await this.dbSavePlan(trx, Service.DEFAULT_USER_ID, plan);
-            await this.dbSaveSchedule(trx, Service.DEFAULT_USER_ID, newPlan.id, schedule);
-            return newPlan;
+            return planAndSchedule;
         });
 
         return {
-            plan: newPlan
+            plan: newPlanAndSchedule.plan
         };
     }
 
@@ -175,17 +160,43 @@ export class Service {
     }
 
     public async getLatestSchedule(): Promise<GetLatestScheduleResponse> {
-        const schedule = await this.conn.transaction(async (trx: Transaction) => {
-            const plan = await this.dbGetLatestPlan(trx, Service.DEFAULT_USER_ID);
-            return await this.dbGetLatestSchedule(trx, Service.DEFAULT_USER_ID, plan.id);
-        });
+        const planAndSchedule = await this.dbGetLatestPlanAndSchedule();
 
         return {
-            schedule: schedule
+            schedule: planAndSchedule.schedule
         };
     }
 
-    private async createPlanIfDoesNotExist(): Promise<void> {
+    private async dbGetLatestPlanAndSchedule(): Promise<PlanAndSchedule> {
+        return await this.conn.transaction(async (trx: Transaction) => {
+            const plan = await this.dbGetLatestPlan(trx, Service.DEFAULT_USER_ID);
+            const schedule = await this.dbGetLatestSchedule(trx, Service.DEFAULT_USER_ID, plan.id);
+
+            return {
+                plan: plan,
+                schedule: schedule
+            };
+        });
+    }
+
+    private async dbModifyPlanAndSchedule(action: (planAndSchedule: PlanAndSchedule) => PlanAndSchedule): Promise<PlanAndSchedule> {
+        return await this.conn.transaction(async (trx: Transaction) => {
+            const plan = await this.dbGetLatestPlan(trx, Service.DEFAULT_USER_ID);
+            const schedule = await this.dbGetLatestSchedule(trx, Service.DEFAULT_USER_ID, plan.id);
+
+            const newPlanAndSchedule = action({plan: plan, schedule: schedule});
+
+            const newSavedPlan = await this.dbSavePlan(trx, Service.DEFAULT_USER_ID, newPlanAndSchedule.plan);
+            const newSavedSchedule = await this.dbSaveSchedule(trx, Service.DEFAULT_USER_ID, newSavedPlan.id, newPlanAndSchedule.schedule);
+
+            return {
+                plan: newSavedPlan,
+                schedule: newSavedSchedule
+            };
+        });
+    }
+
+    private async dbCreatePlanIfDoesNotExist(): Promise<void> {
         await this.conn.transaction(async (trx: Transaction) => {
             try {
                 await this.dbGetLatestPlan(trx, Service.DEFAULT_USER_ID);
@@ -194,9 +205,9 @@ export class Service {
                     throw e;
                 }
 
-                const [initialPlan, initialSchedule] = Service.getEmptyPlanAndSchedule();
-                const newPlan = await this.dbSavePlan(trx, Service.DEFAULT_USER_ID, initialPlan);
-                await this.dbSaveSchedule(trx, Service.DEFAULT_USER_ID, newPlan.id, initialSchedule);
+                const initialPlanAndSchedule = Service.getEmptyPlanAndSchedule();
+                const newPlan = await this.dbSavePlan(trx, Service.DEFAULT_USER_ID, initialPlanAndSchedule.plan);
+                await this.dbSaveSchedule(trx, Service.DEFAULT_USER_ID, newPlan.id, initialPlanAndSchedule.schedule);
             }
         });
     }
@@ -323,28 +334,30 @@ export class Service {
         };
     }
 
-    private static getEmptyPlanAndSchedule(): [Plan, Schedule] {
-        return [{
-            id: -1,
-            version: {
-                major: 1,
-                minor: 1
+    private static getEmptyPlanAndSchedule(): PlanAndSchedule {
+        return {
+            plan: {
+                id: -1,
+                version: {
+                    major: 1,
+                    minor: 1
+                },
+                goals: [],
+                idSerialHack: 0,
+                goalsById: new Map<number, Goal>()
             },
-            goals: [],
-            idSerialHack: 0,
-            goalsById: new Map<number, Goal>()
-        }, {
-            id: -1,
-            version: {
-                major: 1,
-                minor: 1
-            },
-            tasks: [],
-            collectedMetrics: [],
-            idSerialHack: 0
-        }];
+            schedule: {
+                id: -1,
+                version: {
+                    major: 1,
+                    minor: 1
+                },
+                tasks: [],
+                collectedMetrics: [],
+                idSerialHack: 0
+            }
+        };
     }
-
 }
 
 export interface GetLatestPlanResponse {
@@ -378,5 +391,10 @@ export interface CreateTaskResponse {
 }
 
 export interface GetLatestScheduleResponse {
+    schedule: Schedule;
+}
+
+interface PlanAndSchedule {
+    plan: Plan;
     schedule: Schedule;
 }
