@@ -1,13 +1,33 @@
 import * as knex from "knex";
 import {Transaction} from "knex";
+import * as moment from "moment";
 
-import {CollectedMetric, Goal, GoalRange, Metric, MetricType, Plan, Schedule, Task, TaskPriority} from "./entities";
+import {
+    CollectedMetric,
+    CollectedMetricEntry,
+    Goal,
+    GoalRange,
+    Metric,
+    MetricType,
+    Plan,
+    Schedule,
+    Task,
+    TaskPriority
+} from "./entities";
 
 export class ServiceError extends Error {
 
     public constructor(message: string) {
         super(message);
     }
+}
+
+export class CriticalServiceError extends ServiceError {
+
+    public constructor(message: string) {
+        super(message);
+    }
+
 }
 
 export class Service {
@@ -60,16 +80,14 @@ export class Service {
             canBeRemoved: true
         };
 
-        const newPlanAndSchedule = await this.dbModifyPlanAndSchedule((planAndSchedule) => {
+        const newPlanAndSchedule = await this.dbModifyPlanAndSchedule(planAndSchedule => {
             planAndSchedule.plan.goals.push(newGoal);
             planAndSchedule.plan.version.minor++;
             planAndSchedule.plan.idSerialHack++;
             newGoal.id = planAndSchedule.plan.idSerialHack;
             planAndSchedule.plan.goalsById.set(newGoal.id, newGoal);
 
-            planAndSchedule.schedule.version.minor++;
-
-            return planAndSchedule;
+            return [WhatToSave.PLAN_AND_SCHEDULE, planAndSchedule];
         });
 
         return {
@@ -81,6 +99,7 @@ export class Service {
 
         const newMetric: Metric = {
             id: -1,
+            goalId: req.goalId,
             title: req.title,
             type: MetricType.COUNTER
         };
@@ -102,14 +121,16 @@ export class Service {
             planAndSchedule.plan.version.minor++;
             planAndSchedule.plan.idSerialHack++;
             newMetric.id = planAndSchedule.plan.idSerialHack;
+            planAndSchedule.plan.metricsById.set(newMetric.id, newMetric);
 
             planAndSchedule.schedule.collectedMetrics.push(newCollectedMetric);
             planAndSchedule.schedule.version.minor++;
             planAndSchedule.schedule.idSerialHack++;
             newCollectedMetric.id = planAndSchedule.schedule.idSerialHack;
             newCollectedMetric.metricId = newMetric.id;
+            planAndSchedule.schedule.collectedMetricsByMetricId.set(newMetric.id, newCollectedMetric);
 
-            return planAndSchedule;
+            return [WhatToSave.PLAN_AND_SCHEDULE, planAndSchedule];
         });
 
         return {
@@ -140,7 +161,7 @@ export class Service {
 
             planAndSchedule.schedule.version.minor++;
 
-            return planAndSchedule;
+            return [WhatToSave.PLAN_AND_SCHEDULE, planAndSchedule];
         });
 
         return {
@@ -149,10 +170,6 @@ export class Service {
     }
 
     public markGoalAsDone(): void {
-    }
-
-    public recordForMetric(): void {
-
     }
 
     public markTaskAsDone(): void {
@@ -164,6 +181,53 @@ export class Service {
 
         return {
             schedule: planAndSchedule.schedule
+        };
+    }
+
+    public async recordForMetric(req: RecordForMetricRequest): Promise<RecordForMetricResponse> {
+
+        const rightNow = moment.utc();
+
+        const newCollectedMetricEntry: CollectedMetricEntry = {
+            id: -1,
+            collectedMetricId: -1,
+            timestamp: rightNow,
+            value: req.value
+        };
+
+        const newPlanAndSchedule = await this.dbModifyPlanAndSchedule(planAndSchedule => {
+            const plan = planAndSchedule.plan;
+            const schedule = planAndSchedule.schedule;
+
+            const metric = plan.metricsById.get(req.metricId);
+
+            if (metric === undefined) {
+                throw new ServiceError(`Metric with id ${req.metricId} does not exist for user ${Service.DEFAULT_USER_ID}`);
+            }
+
+            const goal = plan.goalsById.get(metric.goalId);
+
+            if (goal === undefined) {
+                throw new CriticalServiceError(`Goal with id ${metric.goalId} does not exist for user ${Service.DEFAULT_USER_ID} and metric ${req.metricId}`);
+            }
+
+            const collectedMetric = schedule.collectedMetricsByMetricId.get(req.metricId);
+
+            if (collectedMetric === undefined) {
+                throw new CriticalServiceError(`Collected metric for metric with id ${req.metricId} does not exist`);
+            }
+
+            collectedMetric.samples.push(newCollectedMetricEntry);
+            schedule.version.minor++;
+            schedule.idSerialHack++;
+            newCollectedMetricEntry.id = schedule.idSerialHack;
+            newCollectedMetricEntry.collectedMetricId = collectedMetric.id;
+
+            return [WhatToSave.SCHEDULE, planAndSchedule];
+        });
+
+        return {
+            schedule: newPlanAndSchedule.schedule
         };
     }
 
@@ -179,19 +243,33 @@ export class Service {
         });
     }
 
-    private async dbModifyPlanAndSchedule(action: (planAndSchedule: PlanAndSchedule) => PlanAndSchedule): Promise<PlanAndSchedule> {
+    private async dbModifyPlanAndSchedule(action: (planAndSchedule: PlanAndSchedule) => [WhatToSave, PlanAndSchedule]): Promise<PlanAndSchedule> {
         return await this.conn.transaction(async (trx: Transaction) => {
             const plan = await this.dbGetLatestPlan(trx, Service.DEFAULT_USER_ID);
             const schedule = await this.dbGetLatestSchedule(trx, Service.DEFAULT_USER_ID, plan.id);
 
-            const newPlanAndSchedule = action({plan: plan, schedule: schedule});
+            const [whatToSave, newPlanAndSchedule] = action({plan: plan, schedule: schedule});
 
-            const newSavedPlan = await this.dbSavePlan(trx, Service.DEFAULT_USER_ID, newPlanAndSchedule.plan);
-            const newSavedSchedule = await this.dbSaveSchedule(trx, Service.DEFAULT_USER_ID, newSavedPlan.id, newPlanAndSchedule.schedule);
+            let newSavedPlan;
+            let newSavedSchedule;
+            switch (whatToSave) {
+                case WhatToSave.PLAN:
+                    newSavedPlan = await this.dbSavePlan(trx, Service.DEFAULT_USER_ID, newPlanAndSchedule.plan);
+                    newSavedSchedule = newPlanAndSchedule.schedule;
+                    break;
+                case WhatToSave.SCHEDULE:
+                    newSavedPlan = newPlanAndSchedule.plan;
+                    newSavedSchedule = await this.dbSaveSchedule(trx, Service.DEFAULT_USER_ID, newPlanAndSchedule.plan.id, newPlanAndSchedule.schedule);
+                    break;
+                case WhatToSave.PLAN_AND_SCHEDULE:
+                    newSavedPlan = await this.dbSavePlan(trx, Service.DEFAULT_USER_ID, newPlanAndSchedule.plan);
+                    newSavedSchedule = await this.dbSaveSchedule(trx, Service.DEFAULT_USER_ID, newSavedPlan.id, newPlanAndSchedule.schedule);
+                    break;
+            }
 
             return {
-                plan: newSavedPlan,
-                schedule: newSavedSchedule
+                plan: newSavedPlan as Plan,
+                schedule: newSavedSchedule as Schedule
             };
         });
     }
@@ -286,17 +364,22 @@ export class Service {
         // TODO(horia141): Proper deserialization here!
         const dbPlan = planRow["plan"];
 
-        const plan = {
+        const plan: Plan = {
             id: planRow["id"],
             version: dbPlan.version,
             goals: dbPlan.goals,
             idSerialHack: dbPlan.idSerialHack,
-            goalsById: new Map<number, Goal>()
+            goalsById: new Map<number, Goal>(),
+            metricsById: new Map<number, Metric>()
         };
 
         // TODO(horia141): deal with subgoals here!
         for (const [, goal] of plan.goals.entries()) {
             plan.goalsById.set(goal.id, goal);
+
+            for (const [, metric] of goal.metrics.entries()) {
+                plan.metricsById.set(metric.id, metric);
+            }
         }
 
         return plan;
@@ -314,13 +397,31 @@ export class Service {
         // TODO(horia141): Proper deserializtion here!
         const dbSchedule = scheduleRow["schedule"];
 
-        const schedule = {
+        const schedule: Schedule = {
             id: scheduleRow["id"],
             version: dbSchedule.version,
-            collectedMetrics: dbSchedule.collectedMetrics,
+            collectedMetrics: dbSchedule.collectedMetrics.map((cm: any) => {
+                return {
+                    id: cm.id,
+                    metricId: cm.metricId,
+                    samples: cm.samples.map((smp: any) => {
+                        return {
+                            id: smp.id,
+                            collectedMetricId: smp.collectedMetricId,
+                            timestamp: moment.unix(smp.timestamp),
+                            value: smp.value
+                        };
+                    })
+                };
+            }),
             tasks: dbSchedule.tasks,
-            idSerialHack: dbSchedule.idSerialHack
+            idSerialHack: dbSchedule.idSerialHack,
+            collectedMetricsByMetricId: new Map<number, CollectedMetric>()
         };
+
+        for (const collectedMetric of schedule.collectedMetrics) {
+            schedule.collectedMetricsByMetricId.set(collectedMetric.metricId, collectedMetric);
+        }
 
         return schedule;
     }
@@ -328,7 +429,20 @@ export class Service {
     private static scheduleToDbSchedule(schedule: Schedule): any {
         return {
             version: schedule.version,
-            collectedMetrics: schedule.collectedMetrics,
+            collectedMetrics: schedule.collectedMetrics.map(cm => {
+                return {
+                    id: cm.id,
+                    metricId: cm.metricId,
+                    samples: cm.samples.map(smp => {
+                        return {
+                            id: smp.id,
+                            collectedMetricId: smp.collectedMetricId,
+                            timestamp: smp.timestamp.unix(),
+                            value: smp.value
+                        };
+                    })
+                };
+            }),
             tasks: schedule.tasks,
             idSerialHack: schedule.idSerialHack
         };
@@ -344,7 +458,8 @@ export class Service {
                 },
                 goals: [],
                 idSerialHack: 0,
-                goalsById: new Map<number, Goal>()
+                goalsById: new Map<number, Goal>(),
+                metricsById: new Map<number, Metric>()
             },
             schedule: {
                 id: -1,
@@ -354,7 +469,8 @@ export class Service {
                 },
                 tasks: [],
                 collectedMetrics: [],
-                idSerialHack: 0
+                idSerialHack: 0,
+                collectedMetricsByMetricId: new Map<number, CollectedMetric>()
             }
         };
     }
@@ -392,6 +508,21 @@ export interface CreateTaskResponse {
 
 export interface GetLatestScheduleResponse {
     schedule: Schedule;
+}
+
+export interface RecordForMetricRequest {
+    metricId: number;
+    value: number;
+}
+
+export interface RecordForMetricResponse {
+    schedule: Schedule;
+}
+
+enum WhatToSave {
+    PLAN = "plan",
+    SCHEDULE = "schedule",
+    PLAN_AND_SCHEDULE = "plan-and-schedule"
 }
 
 interface PlanAndSchedule {

@@ -11,6 +11,7 @@ export interface Plan {
     goals: Goal[];
     idSerialHack: number;
     goalsById: Map<number, Goal>;
+    metricsById: Map<number, Metric>;
 }
 
 export interface Goal {
@@ -36,6 +37,7 @@ export enum GoalRange {
 
 export interface Metric {
     id: number;
+    goalId: number;
     title: string;
     type: MetricType;
 }
@@ -80,6 +82,7 @@ export interface Schedule {
     collectedMetrics: CollectedMetric[];
     tasks: ScheduledTask[];
     idSerialHack: number;
+    collectedMetricsByMetricId: Map<number, CollectedMetric>;
 }
 
 export interface CollectedMetric {

@@ -80,6 +80,20 @@ async function main() {
         });
 
     vorpal
+        .command("schedule:record-metric <metricId> <value>")
+        .description("Record a new value for a metric")
+        .action(async function (this: Vorpal, args: Args) {
+            const metricId = Number.parseInt(args.metricId);
+            const value = Number.parseFloat(args.value);
+            const req = {
+                metricId: metricId,
+                value: value
+            };
+            const res = await service.recordForMetric(req);
+            this.log(printSchedule(res.schedule));
+        });
+
+    vorpal
         .delimiter(">> ")
         .show();
 }
