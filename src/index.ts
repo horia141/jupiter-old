@@ -2,8 +2,8 @@ import * as Vorpal from "vorpal";
 import {Args} from "vorpal";
 import * as knex from "knex";
 
-import { Service } from "./service/Service";
-import {CollectedMetric, Goal, Plan, Schedule} from "./service/entities";
+import {Service} from "./service/Service";
+import {CollectedMetric, Goal, MetricType, Plan, Schedule} from "./service/entities";
 
 async function main() {
 
@@ -46,12 +46,15 @@ async function main() {
     vorpal
         .command("plan:new-metric <title...> <goalId>")
         .description("Adds a new metric to a goal")
+        .option("--counter", "Create a counter metric instead of a gauge one")
         .action(async function (this: Vorpal, args: Args) {
             const title = args.title.join(" ");
             const goalId = Number.parseInt(args.goalId);
+            const isCounter = args.options.counter !== undefined;
             const req = {
                 title: title,
-                goalId: goalId
+                goalId: goalId,
+                isCounter: isCounter
             };
             const res = await service.createMetric(req);
             this.log(printPlan(res.plan));
@@ -81,7 +84,7 @@ async function main() {
 
     vorpal
         .command("schedule:record-metric <metricId> <value>")
-        .description("Record a new value for a metric")
+        .description("Record a new value for a gauge metric")
         .action(async function (this: Vorpal, args: Args) {
             const metricId = Number.parseInt(args.metricId);
             const value = Number.parseFloat(args.value);
@@ -90,6 +93,18 @@ async function main() {
                 value: value
             };
             const res = await service.recordForMetric(req);
+            this.log(printSchedule(res.schedule));
+        });
+
+    vorpal
+        .command("schedule:increment-metric <metricId>")
+        .description("Increment a counter metric")
+        .action(async function (this: Vorpal, args: Args) {
+            const metricId = Number.parseInt(args.metricId);
+            const req = {
+                metricId: metricId
+            };
+            const res = await service.incrementMetric(req);
             this.log(printSchedule(res.schedule));
         });
 
@@ -117,10 +132,10 @@ function printGoal(goal: Goal): string {
 
     if (goal.metrics.length > 0) {
 
-        res.push("  collectedMetrics:");
+        res.push("  metrics:");
 
         for (const metric of goal.metrics) {
-            res.push(`    [${metric.id}] ${metric.title}`);
+            res.push(`    [${metric.id}] ${metric.type === MetricType.GAUGE ? 'g' : 'c'} ${metric.title}`);
         }
     }
 

@@ -101,7 +101,7 @@ export class Service {
             id: -1,
             goalId: req.goalId,
             title: req.title,
-            type: MetricType.COUNTER
+            type: req.isCounter ? MetricType.COUNTER : MetricType.GAUGE
         };
 
         const newCollectedMetric: CollectedMetric = {
@@ -203,6 +203,61 @@ export class Service {
 
             if (metric === undefined) {
                 throw new ServiceError(`Metric with id ${req.metricId} does not exist for user ${Service.DEFAULT_USER_ID}`);
+            }
+
+            if (metric.type !== MetricType.GAUGE) {
+                throw new ServiceError(`Metric with id ${req.metricId} is not a gauge type`);
+            }
+
+            const goal = plan.goalsById.get(metric.goalId);
+
+            if (goal === undefined) {
+                throw new CriticalServiceError(`Goal with id ${metric.goalId} does not exist for user ${Service.DEFAULT_USER_ID} and metric ${req.metricId}`);
+            }
+
+            const collectedMetric = schedule.collectedMetricsByMetricId.get(req.metricId);
+
+            if (collectedMetric === undefined) {
+                throw new CriticalServiceError(`Collected metric for metric with id ${req.metricId} does not exist`);
+            }
+
+            collectedMetric.samples.push(newCollectedMetricEntry);
+            schedule.version.minor++;
+            schedule.idSerialHack++;
+            newCollectedMetricEntry.id = schedule.idSerialHack;
+            newCollectedMetricEntry.collectedMetricId = collectedMetric.id;
+
+            return [WhatToSave.SCHEDULE, planAndSchedule];
+        });
+
+        return {
+            schedule: newPlanAndSchedule.schedule
+        };
+    }
+
+    public async incrementMetric(req: IncrementMetricRequest): Promise<IncrementMetricResponse> {
+
+        const rightNow = moment.utc();
+
+        const newCollectedMetricEntry: CollectedMetricEntry = {
+            id: -1,
+            collectedMetricId: -1,
+            timestamp: rightNow,
+            value: 1
+        };
+
+        const newPlanAndSchedule = await this.dbModifyPlanAndSchedule(planAndSchedule => {
+            const plan = planAndSchedule.plan;
+            const schedule = planAndSchedule.schedule;
+
+            const metric = plan.metricsById.get(req.metricId);
+
+            if (metric === undefined) {
+                throw new ServiceError(`Metric with id ${req.metricId} does not exist for user ${Service.DEFAULT_USER_ID}`);
+            }
+
+            if (metric.type !== MetricType.COUNTER) {
+                throw new ServiceError(`Metric with id ${req.metricId} is not a counter type`);
             }
 
             const goal = plan.goalsById.get(metric.goalId);
@@ -491,6 +546,7 @@ export interface CreateGoalResponse {
 export interface CreateMetricRequest {
     goalId: number;
     title: string;
+    isCounter: boolean;
 }
 
 export interface CreateMetricResponse {
@@ -516,6 +572,14 @@ export interface RecordForMetricRequest {
 }
 
 export interface RecordForMetricResponse {
+    schedule: Schedule;
+}
+
+export interface IncrementMetricRequest {
+    metricId: number;
+}
+
+export interface IncrementMetricResponse {
     schedule: Schedule;
 }
 
