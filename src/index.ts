@@ -83,6 +83,18 @@ async function main() {
         });
 
     vorpal
+        .command("schedule:increment-metric <metricId>")
+        .description("Increment a counter metric")
+        .action(async function (this: Vorpal, args: Args) {
+            const metricId = Number.parseInt(args.metricId);
+            const req = {
+                metricId: metricId
+            };
+            const res = await service.incrementMetric(req);
+            this.log(printSchedule(res.schedule));
+        });
+
+    vorpal
         .command("schedule:record-metric <metricId> <value>")
         .description("Record a new value for a gauge metric")
         .action(async function (this: Vorpal, args: Args) {
@@ -93,18 +105,6 @@ async function main() {
                 value: value
             };
             const res = await service.recordForMetric(req);
-            this.log(printSchedule(res.schedule));
-        });
-
-    vorpal
-        .command("schedule:increment-metric <metricId>")
-        .description("Increment a counter metric")
-        .action(async function (this: Vorpal, args: Args) {
-            const metricId = Number.parseInt(args.metricId);
-            const req = {
-                metricId: metricId
-            };
-            const res = await service.incrementMetric(req);
             this.log(printSchedule(res.schedule));
         });
 
