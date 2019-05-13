@@ -12,6 +12,7 @@ export interface Plan {
     idSerialHack: number;
     goalsById: Map<number, Goal>;
     metricsById: Map<number, Metric>;
+    tasksById: Map<number, Task>;
 }
 
 export interface Goal {
@@ -49,6 +50,7 @@ export enum MetricType {
 
 export interface Task {
     id: number;
+    goalId: number;
     title: string;
     priority: TaskPriority;
     description?: string;
@@ -80,15 +82,16 @@ export interface Schedule {
     id: number;
     version: Version;
     collectedMetrics: CollectedMetric[];
-    tasks: ScheduledTask[];
+    scheduledTasks: ScheduledTask[];
     idSerialHack: number;
     collectedMetricsByMetricId: Map<number, CollectedMetric>;
+    scheduledTasksByTaskId: Map<number, ScheduledTask>;
 }
 
 export interface CollectedMetric {
     id: number;
     metricId: number;
-    samples: CollectedMetricEntry[];
+    entries: CollectedMetricEntry[];
 }
 
 export interface CollectedMetricEntry {
@@ -101,4 +104,11 @@ export interface CollectedMetricEntry {
 export interface ScheduledTask {
     id: number;
     taskId: number;
+    entries: ScheduledTaskEntry[];
+}
+
+export interface ScheduledTaskEntry {
+    id: number;
+    scheduledTaskId: number;
+    isDone: boolean;
 }

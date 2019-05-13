@@ -3,7 +3,7 @@ import {Args} from "vorpal";
 import * as knex from "knex";
 
 import {Service} from "./service/Service";
-import {CollectedMetric, Goal, MetricType, Plan, Schedule} from "./service/entities";
+import {CollectedMetric, Goal, MetricType, Plan, Schedule, ScheduledTask} from "./service/entities";
 
 async function main() {
 
@@ -79,7 +79,7 @@ async function main() {
         .description("Displays the current schedule")
         .action(async function (this: Vorpal) {
             const res = await service.getLatestSchedule();
-            this.log(printSchedule(res.schedule));
+            this.log(printSchedule(res.schedule, res.plan));
         });
 
     vorpal
@@ -91,7 +91,7 @@ async function main() {
                 metricId: metricId
             };
             const res = await service.incrementMetric(req);
-            this.log(printSchedule(res.schedule));
+            this.log(printSchedule(res.schedule, res.plan));
         });
 
     vorpal
@@ -105,7 +105,19 @@ async function main() {
                 value: value
             };
             const res = await service.recordForMetric(req);
-            this.log(printSchedule(res.schedule));
+            this.log(printSchedule(res.schedule, res.plan));
+        });
+
+    vorpal
+        .command("schedule:mark-as-done <taskId>")
+        .description("Marks a task as done")
+        .action(async function (this: Vorpal, args: Args) {
+            const taskId = Number.parseInt(args.taskId);
+            const req = {
+                taskId: taskId
+            };
+            const res = await service.markTaskAsDone(req);
+            this.log(printSchedule(res.schedule, res.plan));
         });
 
     vorpal
@@ -151,7 +163,7 @@ function printGoal(goal: Goal): string {
     return res.join("\n");
 }
 
-function printSchedule(schedule: Schedule): string {
+function printSchedule(schedule: Schedule, plan: Plan): string {
     const res = [];
 
     res.push(`id=${schedule.id}`);
@@ -161,20 +173,51 @@ function printSchedule(schedule: Schedule): string {
         res.push("  metrics:");
 
         for (const collectedMetric of schedule.collectedMetrics) {
-            res.push(printCollectedMetric(collectedMetric));
+            res.push(printCollectedMetric(collectedMetric, plan));
+        }
+    }
+
+    if (schedule.scheduledTasks.length > 0) {
+
+        res.push("  tasks:");
+
+        for (const scheduledTask of schedule.scheduledTasks) {
+            res.push(printScheduledTask(scheduledTask, plan));
         }
     }
 
     return res.join("\n");
 }
 
-function printCollectedMetric(collectedMetric: CollectedMetric): string {
+function printCollectedMetric(collectedMetric: CollectedMetric, plan: Plan): string {
     const res = [];
 
-    res.push(`    [${collectedMetric.id}] ${collectedMetric.metricId}:`);
+    const metric = plan.metricsById.get(collectedMetric.metricId);
+    if (metric === undefined) {
+        throw new Error(`Cannot find metric for ${collectedMetric.metricId}`);
+    }
 
-    for (const sample of collectedMetric.samples) {
-        res.push(`     - ${sample.timestamp} => ${sample.value}`);
+    res.push(`    [${collectedMetric.id}] ${metric.title}:`);
+
+    for (const entry of collectedMetric.entries) {
+        res.push(`     - ${entry.timestamp} => ${entry.value}`);
+    }
+
+    return res.join("\n");
+}
+
+function printScheduledTask(scheduledTask: ScheduledTask, plan: Plan): string {
+    const res = [];
+
+    const task = plan.tasksById.get(scheduledTask.taskId);
+    if (task === undefined) {
+        throw new Error(`Cannot find task for ${scheduledTask.taskId}`);
+    }
+
+    res.push(`    [${scheduledTask.id}] ${task.title}:`);
+
+    for (const entry of scheduledTask.entries) {
+        res.push(`     - ${entry.isDone ? "[+]" : "[-]"}`);
     }
 
     return res.join("\n");

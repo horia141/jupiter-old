@@ -10,7 +10,7 @@ import {
     Metric,
     MetricType,
     Plan,
-    Schedule,
+    Schedule, ScheduledTask,
     Task,
     TaskPriority
 } from "./entities";
@@ -107,7 +107,7 @@ export class Service {
         const newCollectedMetric: CollectedMetric = {
             id: -1,
             metricId: -1,
-            samples: []
+            entries: []
         };
 
         const newPlanAndSchedule = await this.dbModifyPlanAndSchedule(planAndSchedule => {
@@ -142,9 +142,20 @@ export class Service {
 
         const newTask: Task = {
             id: -1,
+            goalId: req.goalId,
             title: req.title,
             priority: TaskPriority.NORMAL,
             inProgress: false
+        };
+
+        const newScheduledTask: ScheduledTask = {
+            id: -1,
+            taskId: -1,
+            entries: [{
+                id: -1,
+                scheduledTaskId: -1,
+                isDone: false
+            }]
         };
 
         const newPlanAndSchedule = await this.dbModifyPlanAndSchedule(planAndSchedule => {
@@ -159,7 +170,14 @@ export class Service {
             planAndSchedule.plan.idSerialHack++;
             newTask.id = planAndSchedule.plan.idSerialHack;
 
+            planAndSchedule.schedule.scheduledTasks.push(newScheduledTask);
             planAndSchedule.schedule.version.minor++;
+            planAndSchedule.schedule.idSerialHack++;
+            newScheduledTask.id = planAndSchedule.schedule.idSerialHack;
+            newScheduledTask.taskId = newTask.id;
+            planAndSchedule.schedule.idSerialHack++;
+            newScheduledTask.entries[0].id = planAndSchedule.schedule.idSerialHack;
+            newScheduledTask.entries[0].scheduledTaskId = newScheduledTask.id;
 
             return [WhatToSave.PLAN_AND_SCHEDULE, planAndSchedule];
         });
@@ -172,14 +190,11 @@ export class Service {
     public markGoalAsDone(): void {
     }
 
-    public markTaskAsDone(): void {
-
-    }
-
     public async getLatestSchedule(): Promise<GetLatestScheduleResponse> {
         const planAndSchedule = await this.dbGetLatestPlanAndSchedule();
 
         return {
+            plan: planAndSchedule.plan,
             schedule: planAndSchedule.schedule
         };
     }
@@ -212,6 +227,44 @@ export class Service {
         return await this.handleMetric(req.metricId, newCollectedMetricEntry, MetricType.GAUGE);
     }
 
+    public async markTaskAsDone(req: MarkTaskAsDoneRequest): Promise<MarkTaskAsDoneResponse> {
+
+        const newPlanAndSchedule = await this.dbModifyPlanAndSchedule(planAndSchedule => {
+
+            const plan = planAndSchedule.plan;
+            const schedule = planAndSchedule.schedule;
+
+            const task = plan.tasksById.get(req.taskId);
+
+            if (task === undefined) {
+                throw new ServiceError(`Metric with id ${req.taskId} does not exist for user ${Service.DEFAULT_USER_ID}`);
+            }
+
+            const goal = plan.goalsById.get(task.goalId);
+
+            if (goal === undefined) {
+                throw new CriticalServiceError(`Goal with id ${task.goalId} does not exist for user ${Service.DEFAULT_USER_ID}`);
+            }
+
+            const scheduledTask = schedule.scheduledTasksByTaskId.get(req.taskId);
+
+            if (scheduledTask === undefined) {
+                throw new CriticalServiceError(`Scheduled task for task with id ${req.taskId} does not exist for user ${Service.DEFAULT_USER_ID}`);
+            }
+
+            // Find the one scheduled task.
+            scheduledTask.entries[0].isDone = true;
+            schedule.version.minor++;
+
+            return [WhatToSave.SCHEDULE, planAndSchedule];
+        });
+
+        return {
+            plan: newPlanAndSchedule.plan,
+            schedule: newPlanAndSchedule.schedule
+        };
+    }
+
     private async handleMetric(metricId: number, entry: CollectedMetricEntry, allowedType: MetricType): Promise<RecordForMetricResponse | IncrementMetricResponse> {
         const newPlanAndSchedule = await this.dbModifyPlanAndSchedule(planAndSchedule => {
             const plan = planAndSchedule.plan;
@@ -239,7 +292,7 @@ export class Service {
                 throw new CriticalServiceError(`Collected metric for metric with id ${metricId} does not exist`);
             }
 
-            collectedMetric.samples.push(entry);
+            collectedMetric.entries.push(entry);
             schedule.version.minor++;
             schedule.idSerialHack++;
             entry.id = schedule.idSerialHack;
@@ -249,6 +302,7 @@ export class Service {
         });
 
         return {
+            plan: newPlanAndSchedule.plan,
             schedule: newPlanAndSchedule.schedule
         };
     }
@@ -392,15 +446,20 @@ export class Service {
             goals: dbPlan.goals,
             idSerialHack: dbPlan.idSerialHack,
             goalsById: new Map<number, Goal>(),
-            metricsById: new Map<number, Metric>()
+            metricsById: new Map<number, Metric>(),
+            tasksById: new Map<number, Task>()
         };
 
         // TODO(horia141): deal with subgoals here!
-        for (const [, goal] of plan.goals.entries()) {
+        for (const goal of plan.goals) {
             plan.goalsById.set(goal.id, goal);
 
-            for (const [, metric] of goal.metrics.entries()) {
+            for (const metric of goal.metrics) {
                 plan.metricsById.set(metric.id, metric);
+            }
+
+            for (const task of goal.tasks) {
+                plan.tasksById.set(task.id, task);
             }
         }
 
@@ -426,7 +485,7 @@ export class Service {
                 return {
                     id: cm.id,
                     metricId: cm.metricId,
-                    samples: cm.samples.map((smp: any) => {
+                    entries: cm.entries.map((smp: any) => {
                         return {
                             id: smp.id,
                             collectedMetricId: smp.collectedMetricId,
@@ -436,13 +495,18 @@ export class Service {
                     })
                 };
             }),
-            tasks: dbSchedule.tasks,
+            scheduledTasks: dbSchedule.scheduledTasks,
             idSerialHack: dbSchedule.idSerialHack,
-            collectedMetricsByMetricId: new Map<number, CollectedMetric>()
+            collectedMetricsByMetricId: new Map<number, CollectedMetric>(),
+            scheduledTasksByTaskId: new Map<number, ScheduledTask>()
         };
 
         for (const collectedMetric of schedule.collectedMetrics) {
             schedule.collectedMetricsByMetricId.set(collectedMetric.metricId, collectedMetric);
+        }
+
+        for (const scheduledTask of schedule.scheduledTasks) {
+            schedule.scheduledTasksByTaskId.set(scheduledTask.taskId, scheduledTask);
         }
 
         return schedule;
@@ -455,7 +519,7 @@ export class Service {
                 return {
                     id: cm.id,
                     metricId: cm.metricId,
-                    samples: cm.samples.map(smp => {
+                    entries: cm.entries.map(smp => {
                         return {
                             id: smp.id,
                             collectedMetricId: smp.collectedMetricId,
@@ -465,7 +529,7 @@ export class Service {
                     })
                 };
             }),
-            tasks: schedule.tasks,
+            scheduledTasks: schedule.scheduledTasks,
             idSerialHack: schedule.idSerialHack
         };
     }
@@ -481,7 +545,8 @@ export class Service {
                 goals: [],
                 idSerialHack: 0,
                 goalsById: new Map<number, Goal>(),
-                metricsById: new Map<number, Metric>()
+                metricsById: new Map<number, Metric>(),
+                tasksById: new Map<number, Task>()
             },
             schedule: {
                 id: -1,
@@ -489,10 +554,11 @@ export class Service {
                     major: 1,
                     minor: 1
                 },
-                tasks: [],
+                scheduledTasks: [],
                 collectedMetrics: [],
                 idSerialHack: 0,
-                collectedMetricsByMetricId: new Map<number, CollectedMetric>()
+                collectedMetricsByMetricId: new Map<number, CollectedMetric>(),
+                scheduledTasksByTaskId: new Map<number, ScheduledTask>()
             }
         };
     }
@@ -530,6 +596,7 @@ export interface CreateTaskResponse {
 }
 
 export interface GetLatestScheduleResponse {
+    plan: Plan;
     schedule: Schedule;
 }
 
@@ -538,6 +605,7 @@ export interface IncrementMetricRequest {
 }
 
 export interface IncrementMetricResponse {
+    plan: Plan;
     schedule: Schedule;
 }
 
@@ -547,6 +615,16 @@ export interface RecordForMetricRequest {
 }
 
 export interface RecordForMetricResponse {
+    plan: Plan;
+    schedule: Schedule;
+}
+
+export interface MarkTaskAsDoneRequest {
+    taskId: number;
+}
+
+export interface MarkTaskAsDoneResponse {
+    plan: Plan;
     schedule: Schedule;
 }
 
