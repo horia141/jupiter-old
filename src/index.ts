@@ -3,7 +3,7 @@ import {Args} from "vorpal";
 import * as knex from "knex";
 
 import {Service} from "./service/Service";
-import {CollectedMetric, Goal, MetricType, Plan, Schedule, ScheduledTask} from "./service/entities";
+import {CollectedMetric, Goal, MetricType, Plan, Schedule, ScheduledTask, TaskRepeatSchedule} from "./service/entities";
 
 async function main() {
 
@@ -63,12 +63,18 @@ async function main() {
     vorpal
         .command("plan:new-task <title...> <goalId>")
         .description("Add a new task to a goal")
+        .option(
+            "-r, --repeatSchedule <schedule>",
+            "Makes this task repeat according to a schedule",
+            [TaskRepeatSchedule.DAILY, TaskRepeatSchedule.WEEKLY, TaskRepeatSchedule.MONTHLY, TaskRepeatSchedule.QUARTERLY, TaskRepeatSchedule.YEARLY])
         .action(async function (this: Vorpal, args: Args) {
             const title = args.title.join(" ");
             const goalId = Number.parseInt(args.goalId);
+            const repeatSchedule = args.options.repeatSchedule;
             const req = {
                 title: title,
-                goalId: goalId
+                goalId: goalId,
+                repeatSchedule: repeatSchedule
             };
             const res = await service.createTask(req);
             this.log(printPlan(res.plan));

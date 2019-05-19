@@ -55,7 +55,7 @@ export interface Task {
     priority: TaskPriority;
     description?: string;
     deadline?: moment.Moment;
-    schedule?: any;
+    repeatSchedule?: TaskRepeatSchedule;
     reminderPolicy?: any;
     subtasks?: SubTask[];
     donePolicy?: any;
@@ -65,6 +65,14 @@ export interface Task {
 export enum TaskPriority {
     NORMAL = "normal",
     HIGH = "high"
+}
+
+export enum TaskRepeatSchedule {
+    YEARLY = "yearly",
+    QUARTERLY = "quarterly",
+    MONTHLY = "monthly",
+    WEEKLY = "weekly",
+    DAILY = "daily"
 }
 
 export interface SubTask {
@@ -111,4 +119,5 @@ export interface ScheduledTaskEntry {
     id: number;
     scheduledTaskId: number;
     isDone: boolean;
+    repeatScheduleAt: moment.Moment;
 }

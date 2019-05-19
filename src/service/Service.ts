@@ -10,9 +10,11 @@ import {
     Metric,
     MetricType,
     Plan,
-    Schedule, ScheduledTask,
+    Schedule,
+    ScheduledTask,
     Task,
-    TaskPriority
+    TaskPriority,
+    TaskRepeatSchedule
 } from "./entities";
 
 export class ServiceError extends Error {
@@ -31,6 +33,8 @@ export class CriticalServiceError extends ServiceError {
 }
 
 export class Service {
+
+    private static readonly REPEATING_TASKS_INTERVAL = moment.duration(1, "minute");
 
     private static readonly DEFAULT_USER_ID = 1;
 
@@ -56,6 +60,7 @@ export class Service {
 
     public async init(): Promise<void> {
         await this.dbCreatePlanIfDoesNotExist();
+        setInterval(this.updateScheduleWithRepeatingTasks.bind(this), Service.REPEATING_TASKS_INTERVAL.asMilliseconds());
     }
 
     public async getLatestPlan(): Promise<GetLatestPlanResponse> {
@@ -140,12 +145,15 @@ export class Service {
 
     public async createTask(req: CreateTaskRequest): Promise<CreateTaskResponse> {
 
+        const rightNow = moment.utc();
+
         const newTask: Task = {
             id: -1,
             goalId: req.goalId,
             title: req.title,
             priority: TaskPriority.NORMAL,
-            inProgress: false
+            inProgress: false,
+            repeatSchedule: req.repeatSchedule
         };
 
         const newScheduledTask: ScheduledTask = {
@@ -154,7 +162,8 @@ export class Service {
             entries: [{
                 id: -1,
                 scheduledTaskId: -1,
-                isDone: false
+                isDone: false,
+                repeatScheduleAt: rightNow.startOf("day")
             }]
         };
 
@@ -263,6 +272,60 @@ export class Service {
             plan: newPlanAndSchedule.plan,
             schedule: newPlanAndSchedule.schedule
         };
+    }
+
+    private async updateScheduleWithRepeatingTasks(): Promise<void> {
+
+        function shouldAddRepeatedTaskToScheduleBasedOnDate(date: moment.Moment, repeatSchedule: TaskRepeatSchedule): boolean {
+            switch (repeatSchedule) {
+                case TaskRepeatSchedule.DAILY:
+                    return true;
+                case TaskRepeatSchedule.WEEKLY:
+                    return date.isoWeekday() === 1;
+                case TaskRepeatSchedule.MONTHLY:
+                    return date.date() === 1;
+                case TaskRepeatSchedule.QUARTERLY:
+                    const monthIdx = date.month();
+                    return date.date() === 1 && (monthIdx === 0 || monthIdx === 3 || monthIdx === 6 || monthIdx === 9);
+                case TaskRepeatSchedule.YEARLY:
+                    return date.date() === 1 && date.month() === 0;
+            }
+        }
+
+        const rightNow = moment.utc();
+
+        await this.dbModifyPlanAndSchedule(planAndSchedule => {
+            for (const task of planAndSchedule.plan.tasksById.values()) {
+                if (task.repeatSchedule === undefined) {
+                    continue;
+                }
+
+                const scheduledTask = planAndSchedule.schedule.scheduledTasksByTaskId.get(task.id);
+
+                if (scheduledTask === undefined) {
+                    throw new CriticalServiceError(`Scheduled task for task with id ${task.id} does not exist`);
+                }
+
+                const lastEntry = scheduledTask.entries[scheduledTask.entries.length - 1]; // Guaranteed to always exist!
+                const lastEntryRepeatScheduleAt = lastEntry.repeatScheduleAt.startOf("day"); // Should already be here!
+
+                for (let date = lastEntryRepeatScheduleAt; date < rightNow; date = date.add(1, "day")) {
+                    if (!shouldAddRepeatedTaskToScheduleBasedOnDate(date, task.repeatSchedule)) {
+                        continue;
+                    }
+
+                    planAndSchedule.schedule.idSerialHack++;
+                    scheduledTask.entries.push({
+                        id: planAndSchedule.schedule.idSerialHack,
+                        scheduledTaskId: scheduledTask.id,
+                        isDone: false,
+                        repeatScheduleAt: date
+                    });
+                }
+            }
+
+            return [WhatToSave.PLAN_AND_SCHEDULE, planAndSchedule];
+        });
     }
 
     private async handleMetric(metricId: number, entry: CollectedMetricEntry, allowedType: MetricType): Promise<RecordForMetricResponse | IncrementMetricResponse> {
@@ -495,7 +558,20 @@ export class Service {
                     })
                 };
             }),
-            scheduledTasks: dbSchedule.scheduledTasks,
+            scheduledTasks: dbSchedule.scheduledTasks.map((st: any) => {
+                return {
+                    id: st.id,
+                    taskId: st.taskId,
+                    entries: st.entries.map((ste: any) => {
+                        return {
+                            id: ste.id,
+                            scheduledTaskId: ste.scheduledTaskId,
+                            isDone: ste.isDone,
+                            repeatScheduleAt: moment.unix(ste.repeatScheduleAt)
+                        };
+                    })
+                };
+            }),
             idSerialHack: dbSchedule.idSerialHack,
             collectedMetricsByMetricId: new Map<number, CollectedMetric>(),
             scheduledTasksByTaskId: new Map<number, ScheduledTask>()
@@ -529,7 +605,20 @@ export class Service {
                     })
                 };
             }),
-            scheduledTasks: schedule.scheduledTasks,
+            scheduledTasks: schedule.scheduledTasks.map(st => {
+                return {
+                    id: st.id,
+                    taskId: st.taskId,
+                    entries: st.entries.map(ste => {
+                        return {
+                            id: ste.id,
+                            scheduledTaskId: ste.scheduledTaskId,
+                            isDone: ste.isDone,
+                            repeatScheduleAt: ste.repeatScheduleAt.unix()
+                        };
+                    })
+                };
+            }),
             idSerialHack: schedule.idSerialHack
         };
     }
@@ -589,6 +678,7 @@ export interface CreateMetricResponse {
 export interface CreateTaskRequest {
     goalId: number;
     title: string;
+    repeatSchedule?: TaskRepeatSchedule;
 }
 
 export interface CreateTaskResponse {
