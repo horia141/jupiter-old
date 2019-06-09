@@ -293,8 +293,11 @@ export class Service {
         }
 
         const rightNow = moment.utc();
+        const rightNowDay = rightNow.startOf("day");
 
         await this.dbModifyPlanAndSchedule(planAndSchedule => {
+            let modifiedSomething = false;
+
             for (const task of planAndSchedule.plan.tasksById.values()) {
                 if (task.repeatSchedule === undefined) {
                     continue;
@@ -309,7 +312,7 @@ export class Service {
                 const lastEntry = scheduledTask.entries[scheduledTask.entries.length - 1]; // Guaranteed to always exist!
                 const lastEntryRepeatScheduleAt = lastEntry.repeatScheduleAt.startOf("day"); // Should already be here!
 
-                for (let date = lastEntryRepeatScheduleAt; date < rightNow; date = date.add(1, "day")) {
+                for (let date = lastEntryRepeatScheduleAt; date < rightNowDay; date = date.add(1, "day")) {
                     if (!shouldAddRepeatedTaskToScheduleBasedOnDate(date, task.repeatSchedule)) {
                         continue;
                     }
@@ -321,10 +324,16 @@ export class Service {
                         isDone: false,
                         repeatScheduleAt: date
                     });
+                    modifiedSomething = true;
                 }
             }
 
-            return [WhatToSave.PLAN_AND_SCHEDULE, planAndSchedule];
+            if (modifiedSomething) {
+                planAndSchedule.schedule.version.minor++;
+                return [WhatToSave.SCHEDULE, planAndSchedule];
+            }  else {
+                return [WhatToSave.NONE, planAndSchedule];
+            }
         });
     }
 
@@ -392,6 +401,10 @@ export class Service {
             let newSavedPlan;
             let newSavedSchedule;
             switch (whatToSave) {
+                case WhatToSave.NONE:
+                    newSavedPlan = newPlanAndSchedule.plan;
+                    newSavedSchedule = newPlanAndSchedule.schedule;
+                    break;
                 case WhatToSave.PLAN:
                     newSavedPlan = await this.dbSavePlan(trx, Service.DEFAULT_USER_ID, newPlanAndSchedule.plan);
                     newSavedSchedule = newPlanAndSchedule.schedule;
@@ -719,6 +732,7 @@ export interface MarkTaskAsDoneResponse {
 }
 
 enum WhatToSave {
+    NONE = "none",
     PLAN = "plan",
     SCHEDULE = "schedule",
     PLAN_AND_SCHEDULE = "plan-and-schedule"
