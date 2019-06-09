@@ -89,7 +89,7 @@ async function main() {
         })
 
     vorpal
-        .command("plan:new-task <title...> <goalId>")
+        .command("plan:new-task <goalId> <title...>")
         .description("Add a new task to a goal")
         .option(
             "-r, --repeatSchedule <schedule>",
@@ -105,6 +105,20 @@ async function main() {
                 repeatSchedule: repeatSchedule
             };
             const res = await service.createTask(req);
+            this.log(printPlan(res.plan));
+        });
+
+    vorpal
+        .command("plan:set-task-title <taskId> <title...>")
+        .description("Change the title of a given task")
+        .action(async function (this: Vorpal, args: Args) {
+            const taskId = Number.parseInt(args.taskId);
+            const title = args.title.join(" ");
+            const req = {
+                taskId: taskId,
+                title: title
+            };
+            const res = await service.updateTask(req);
             this.log(printPlan(res.plan));
         });
 

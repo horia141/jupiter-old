@@ -240,6 +240,28 @@ export class Service {
         };
     }
 
+    public async updateTask(req: UpdateTaskRequest): Promise<UpdateTaskResponse> {
+
+        const newPlanAndSchedule = await this.dbModifyPlanAndSchedule(planAndSchedule => {
+            const task = planAndSchedule.plan.tasksById.get(req.taskId);
+
+            if (task === undefined) {
+                throw new ServiceError(`Task with id ${req.taskId} does not exist for user ${Service.DEFAULT_USER_ID}`);
+            }
+
+            if (req.title !== undefined) {
+                task.title = req.title;
+            }
+            planAndSchedule.plan.version.minor++;
+
+            return [WhatToSave.PLAN_AND_SCHEDULE, planAndSchedule];
+        });
+
+        return {
+            plan: newPlanAndSchedule.plan
+        };
+    }
+
     public markGoalAsDone(): void {
     }
 
@@ -757,6 +779,15 @@ export interface CreateTaskRequest {
 }
 
 export interface CreateTaskResponse {
+    plan: Plan;
+}
+
+export interface UpdateTaskRequest {
+    taskId: number;
+    title?: string;
+}
+
+export interface UpdateTaskResponse {
     plan: Plan;
 }
 
