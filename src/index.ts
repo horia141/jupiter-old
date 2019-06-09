@@ -55,10 +55,10 @@ async function main() {
             };
             const res = await service.updateGoal(req);
             this.log(printPlan(res.plan));
-        })
+        });
 
     vorpal
-        .command("plan:new-metric <title...> <goalId>")
+        .command("plan:new-metric <goalId> <title...>")
         .description("Adds a new metric to a goal")
         .option("--counter", "Create a counter metric instead of a gauge one")
         .action(async function (this: Vorpal, args: Args) {
@@ -73,6 +73,20 @@ async function main() {
             const res = await service.createMetric(req);
             this.log(printPlan(res.plan));
         });
+
+    vorpal
+        .command("plan:set-metric-title <metricId> <title...>")
+        .description("Change the title of a given metric")
+        .action(async function (this: Vorpal, args: Args) {
+            const metricId = Number.parseInt(args.metricId);
+            const title = args.title.join(" ");
+            const req = {
+                metricId: metricId,
+                title: title
+            };
+            const res = await service.updateMetric(req);
+            this.log(printPlan(res.plan));
+        })
 
     vorpal
         .command("plan:new-task <title...> <goalId>")

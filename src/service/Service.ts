@@ -165,6 +165,28 @@ export class Service {
         };
     }
 
+    public async updateMetric(req: UpdateMetricRequest): Promise<UpdateMetricResponse> {
+
+        const newPlanAndSchedule = await this.dbModifyPlanAndSchedule(planAndSchedule => {
+            const metric = planAndSchedule.plan.metricsById.get(req.metricId);
+
+            if (metric === undefined) {
+                throw new ServiceError(`Metric with id ${req.metricId} does not exist for user ${Service.DEFAULT_USER_ID}`);
+            }
+
+            if (req.title !== undefined) {
+                metric.title = req.title;
+            }
+            planAndSchedule.plan.version.minor++;
+
+            return [WhatToSave.PLAN_AND_SCHEDULE, planAndSchedule];
+        });
+
+        return {
+            plan: newPlanAndSchedule.plan
+        };
+    }
+
     public async createTask(req: CreateTaskRequest): Promise<CreateTaskResponse> {
 
         const rightNow = moment.utc();
@@ -716,6 +738,15 @@ export interface CreateMetricRequest {
 }
 
 export interface CreateMetricResponse {
+    plan: Plan;
+}
+
+export interface UpdateMetricRequest {
+    metricId: number;
+    title?: string;
+}
+
+export interface UpdateMetricResponse {
     plan: Plan;
 }
 
