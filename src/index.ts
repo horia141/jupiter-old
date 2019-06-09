@@ -44,6 +44,20 @@ async function main() {
         });
 
     vorpal
+        .command("plan:set-goal-title <goalId> <title...>")
+        .description("Change the title of a given goal")
+        .action(async function (this: Vorpal, args: Args) {
+            const goalId = Number.parseInt(args.goalId);
+            const title = args.title.join(" ");
+            const req = {
+                goalId: goalId,
+                title: title
+            };
+            const res = await service.updateGoal(req);
+            this.log(printPlan(res.plan));
+        })
+
+    vorpal
         .command("plan:new-metric <title...> <goalId>")
         .description("Adds a new metric to a goal")
         .option("--counter", "Create a counter metric instead of a gauge one")

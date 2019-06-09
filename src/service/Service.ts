@@ -100,6 +100,28 @@ export class Service {
         };
     }
 
+    public async updateGoal(req: UpdateGoalRequest): Promise<UpdateGoalResponse> {
+
+        const newPlanAndSchedule = await this.dbModifyPlanAndSchedule(planAndSchedule => {
+            const goal = planAndSchedule.plan.goalsById.get(req.goalId);
+
+            if (goal === undefined) {
+                throw new ServiceError(`Goal with id ${req.goalId} does not exist for user ${Service.DEFAULT_USER_ID}`);
+            }
+
+            if (req.title !== undefined) {
+                goal.title = req.title;
+            }
+            planAndSchedule.plan.version.minor++;
+
+            return [WhatToSave.PLAN_AND_SCHEDULE, planAndSchedule];
+        });
+
+        return {
+            plan: newPlanAndSchedule.plan
+        };
+    }
+
     public async createMetric(req: CreateMetricRequest): Promise<CreateMetricResponse> {
 
         const newMetric: Metric = {
@@ -675,6 +697,15 @@ export interface CreateGoalRequest {
 }
 
 export interface CreateGoalResponse {
+    plan: Plan;
+}
+
+export interface UpdateGoalRequest {
+    goalId: number;
+    title?: string;
+}
+
+export interface UpdateGoalResponse {
     plan: Plan;
 }
 
