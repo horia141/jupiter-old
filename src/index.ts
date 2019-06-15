@@ -86,7 +86,7 @@ async function main() {
             };
             const res = await service.updateMetric(req);
             this.log(printPlan(res.plan));
-        })
+        });
 
     vorpal
         .command("plan:new-task <goalId> <title...>")

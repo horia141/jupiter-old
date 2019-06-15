@@ -703,15 +703,25 @@ export class Service {
     }
 
     private static getEmptyPlanAndSchedule(): PlanAndSchedule {
-        return {
+        const newPlanAndSchedule = {
             plan: {
                 id: -1,
                 version: {
                     major: 1,
                     minor: 1
                 },
-                goals: [],
-                idSerialHack: 0,
+                goals: [{
+                    id: 1,
+                    title: "Inbox",
+                    description: "Stuff you're working on outside of any big project",
+                    range: GoalRange.LIFETIME,
+                    subgoals: [],
+                    metrics: [],
+                    tasks: [],
+                    boards: [],
+                    canBeRemoved: false
+                }],
+                idSerialHack: 1,
                 goalsById: new Map<number, Goal>(),
                 metricsById: new Map<number, Metric>(),
                 tasksById: new Map<number, Task>()
@@ -729,6 +739,9 @@ export class Service {
                 scheduledTasksByTaskId: new Map<number, ScheduledTask>()
             }
         };
+        newPlanAndSchedule.plan.goalsById.set(1, newPlanAndSchedule.plan.goals[0]);
+
+        return newPlanAndSchedule;
     }
 }
 
