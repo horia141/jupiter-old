@@ -58,6 +58,18 @@ async function main() {
         });
 
     vorpal
+        .command("plan:mark-as-done <goalId>")
+        .description("Mark a goal as done")
+        .action(async function (this: Vorpal, args: Args) {
+            const goalId = Number.parseInt(args.goalId);
+            const req = {
+                goalId: goalId
+            };
+            const res = await service.markGoalAsDone(req);
+            this.log(printPlan(res.plan));
+        });
+
+    vorpal
         .command("plan:new-metric <goalId> <title...>")
         .description("Adds a new metric to a goal")
         .option("--counter", "Create a counter metric instead of a gauge one")
@@ -179,6 +191,10 @@ function printPlan(plan: Plan): string {
     res.push(`id=${plan.id}`);
 
     for (const goal of plan.goals) {
+        if (goal.isDone) {
+            continue;
+        }
+
         res.push(printGoal(goal));
     }
 

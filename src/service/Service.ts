@@ -82,7 +82,9 @@ export class Service {
             metrics: [],
             tasks: [],
             boards: [],
-            canBeRemoved: true
+            canBeMarkedAsDone: true,
+            canBeRemoved: true,
+            isDone: false
         };
 
         const newPlanAndSchedule = await this.dbModifyPlanAndSchedule(planAndSchedule => {
@@ -122,6 +124,34 @@ export class Service {
         };
     }
 
+    public async markGoalAsDone(req: MarkGoalAsDoneRequest): Promise<MarkGoalAsDoneResponse> {
+
+        const newPlanAndSchedule = await this.dbModifyPlanAndSchedule(planAndSchedule => {
+            const goal = planAndSchedule.plan.goalsById.get(req.goalId);
+
+            if (goal === undefined) {
+                throw new ServiceError(`Goal with id ${req.goalId} does not exist for user ${Service.DEFAULT_USER_ID}`);
+            }
+
+            if (!goal.canBeMarkedAsDone) {
+                throw new ServiceError(`Goal with id ${req.goalId} cannot be marked as done`);
+            }
+
+            if (goal.isDone) {
+                throw new ServiceError(`Goal with id ${req.goalId} is already done`);
+            }
+
+            goal.isDone = true;
+            planAndSchedule.plan.version.minor++;
+
+            return [WhatToSave.PLAN_AND_SCHEDULE, planAndSchedule];
+        });
+
+        return {
+            plan: newPlanAndSchedule.plan
+        };
+    }
+
     public async createMetric(req: CreateMetricRequest): Promise<CreateMetricResponse> {
 
         const newMetric: Metric = {
@@ -142,6 +172,10 @@ export class Service {
 
             if (goal === undefined) {
                 throw new ServiceError(`Goal with id ${req.goalId} does not exist for user ${Service.DEFAULT_USER_ID}`);
+            }
+
+            if (goal.isDone) {
+                throw new ServiceError(`Goal with id ${req.goalId} cannot have metrics added to it since it is done`);
             }
 
             goal.metrics.push(newMetric);
@@ -218,6 +252,10 @@ export class Service {
                 throw new ServiceError(`Goal with id ${req.goalId} does not exist for user ${Service.DEFAULT_USER_ID}`);
             }
 
+            if (goal.isDone) {
+                throw new ServiceError(`Goal with id ${req.goalId} cannot have tasks added to it since it is done`);
+            }
+
             goal.tasks.push(newTask);
             planAndSchedule.plan.version.minor++;
             planAndSchedule.plan.idSerialHack++;
@@ -260,9 +298,6 @@ export class Service {
         return {
             plan: newPlanAndSchedule.plan
         };
-    }
-
-    public markGoalAsDone(): void {
     }
 
     public async getLatestSchedule(): Promise<GetLatestScheduleResponse> {
@@ -321,6 +356,10 @@ export class Service {
                 throw new CriticalServiceError(`Goal with id ${task.goalId} does not exist for user ${Service.DEFAULT_USER_ID}`);
             }
 
+            if (goal.isDone) {
+                throw new ServiceError(`Goal with id ${goal.id} cannot be operated upon since it is done`);
+            }
+
             const scheduledTask = schedule.scheduledTasksByTaskId.get(req.taskId);
 
             if (scheduledTask === undefined) {
@@ -375,6 +414,16 @@ export class Service {
                     throw new CriticalServiceError(`Scheduled task for task with id ${task.id} does not exist`);
                 }
 
+                const goal = planAndSchedule.plan.goalsById.get(task.goalId);
+
+                if (goal === undefined) {
+                    throw new CriticalServiceError(`Goal with id ${task.goalId} does not exist for ${task.id}`);
+                }
+
+                if (goal.isDone) {
+                    continue;
+                }
+
                 const lastEntry = scheduledTask.entries[scheduledTask.entries.length - 1]; // Guaranteed to always exist!
                 const lastEntryRepeatScheduleAt = lastEntry.repeatScheduleAt.startOf("day"); // Should already be here!
 
@@ -422,6 +471,10 @@ export class Service {
 
             if (goal === undefined) {
                 throw new CriticalServiceError(`Goal with id ${metric.goalId} does not exist for user ${Service.DEFAULT_USER_ID} and metric ${metricId}`);
+            }
+
+            if (goal.isDone) {
+                throw new ServiceError(`Goal with id ${goal.id} cannot be operated upon since it is done`);
             }
 
             const collectedMetric = schedule.collectedMetricsByMetricId.get(metricId);
@@ -719,7 +772,9 @@ export class Service {
                     metrics: [],
                     tasks: [],
                     boards: [],
-                    canBeRemoved: false
+                    canBeMarkedAsDone: false,
+                    canBeRemoved: false,
+                    isDone: false
                 }],
                 idSerialHack: 1,
                 goalsById: new Map<number, Goal>(),
@@ -763,6 +818,14 @@ export interface UpdateGoalRequest {
 }
 
 export interface UpdateGoalResponse {
+    plan: Plan;
+}
+
+export interface MarkGoalAsDoneRequest {
+    goalId: number;
+}
+
+export interface MarkGoalAsDoneResponse {
     plan: Plan;
 }
 
