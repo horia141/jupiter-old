@@ -26,8 +26,9 @@ export interface Goal {
     tasks: Task[];
     boards: Board[];
     canBeMarkedAsDone: boolean;
-    canBeRemoved: boolean;
     isDone: boolean;
+    canBeArchived: boolean;
+    isArchived: boolean;
 }
 
 export enum GoalRange {

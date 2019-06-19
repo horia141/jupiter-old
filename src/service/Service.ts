@@ -83,8 +83,9 @@ export class Service {
             tasks: [],
             boards: [],
             canBeMarkedAsDone: true,
-            canBeRemoved: true,
-            isDone: false
+            isDone: false,
+            canBeArchived: true,
+            isArchived: false
         };
 
         const newPlanAndSchedule = await this.dbModifyPlanAndSchedule(planAndSchedule => {
@@ -109,6 +110,8 @@ export class Service {
 
             if (goal === undefined) {
                 throw new ServiceError(`Goal with id ${req.goalId} does not exist for user ${Service.DEFAULT_USER_ID}`);
+            } else if (goal.isArchived) {
+                throw new ServiceError(`Goal with id ${req.goalId} is archived`);
             }
 
             if (req.title !== undefined) {
@@ -131,17 +134,39 @@ export class Service {
 
             if (goal === undefined) {
                 throw new ServiceError(`Goal with id ${req.goalId} does not exist for user ${Service.DEFAULT_USER_ID}`);
-            }
-
-            if (!goal.canBeMarkedAsDone) {
+            } else if (goal.isArchived) {
+                throw new ServiceError(`Goal with id ${req.goalId} is archived`);
+            } else if (!goal.canBeMarkedAsDone) {
                 throw new ServiceError(`Goal with id ${req.goalId} cannot be marked as done`);
-            }
-
-            if (goal.isDone) {
+            } else if (goal.isDone) {
                 throw new ServiceError(`Goal with id ${req.goalId} is already done`);
             }
 
             goal.isDone = true;
+            planAndSchedule.plan.version.minor++;
+
+            return [WhatToSave.PLAN_AND_SCHEDULE, planAndSchedule];
+        });
+
+        return {
+            plan: newPlanAndSchedule.plan
+        };
+    }
+
+    public async archiveGoal(req: ArchiveGoalRequest): Promise<ArchiveGoalResponse> {
+
+        const newPlanAndSchedule = await this.dbModifyPlanAndSchedule(planAndSchedule => {
+            const goal = planAndSchedule.plan.goalsById.get(req.goalId);
+
+            if (goal === undefined) {
+                throw new ServiceError(`Goal with id ${req.goalId} does not exist for user ${Service.DEFAULT_USER_ID}`);
+            } else if (!goal.canBeArchived) {
+                throw new ServiceError(`Goal with id ${req.goalId} cannot be removed`);
+            } else if (goal.isArchived) {
+                throw new ServiceError(`Goal with id ${req.goalId} is already archived`);
+            }
+
+            goal.isArchived = true;
             planAndSchedule.plan.version.minor++;
 
             return [WhatToSave.PLAN_AND_SCHEDULE, planAndSchedule];
@@ -172,9 +197,9 @@ export class Service {
 
             if (goal === undefined) {
                 throw new ServiceError(`Goal with id ${req.goalId} does not exist for user ${Service.DEFAULT_USER_ID}`);
-            }
-
-            if (goal.isDone) {
+            } else if (goal.isArchived) {
+                throw new ServiceError(`Goal with id ${req.goalId} cannot have metrics added to it since it is archived`);
+            } else if (goal.isDone) {
                 throw new ServiceError(`Goal with id ${req.goalId} cannot have metrics added to it since it is done`);
             }
 
@@ -206,6 +231,14 @@ export class Service {
 
             if (metric === undefined) {
                 throw new ServiceError(`Metric with id ${req.metricId} does not exist for user ${Service.DEFAULT_USER_ID}`);
+            }
+
+            const goal = planAndSchedule.plan.goalsById.get(metric.goalId);
+
+            if (goal === undefined) {
+                throw new CriticalServiceError(`Goal with id ${metric.goalId} does not exist for metric ${metric.id}`);
+            } else if (goal.isArchived) {
+                throw new ServiceError(`Goal with id ${goal.id} cannot have metrics updated since it is archived`);
             }
 
             if (req.title !== undefined) {
@@ -250,9 +283,9 @@ export class Service {
 
             if (goal === undefined) {
                 throw new ServiceError(`Goal with id ${req.goalId} does not exist for user ${Service.DEFAULT_USER_ID}`);
-            }
-
-            if (goal.isDone) {
+            } else if (goal.isArchived) {
+                throw new ServiceError(`Goal with id ${req.goalId} cannot have tasks added to it since it is archived`);
+            } else if (goal.isDone) {
                 throw new ServiceError(`Goal with id ${req.goalId} cannot have tasks added to it since it is done`);
             }
 
@@ -285,6 +318,14 @@ export class Service {
 
             if (task === undefined) {
                 throw new ServiceError(`Task with id ${req.taskId} does not exist for user ${Service.DEFAULT_USER_ID}`);
+            }
+
+            const goal = planAndSchedule.plan.goalsById.get(task.goalId);
+
+            if (goal === undefined) {
+                throw new CriticalServiceError(`Goal with id ${task.goalId} does not exist for task ${task.id}`);
+            } else if (goal.isArchived) {
+                throw new ServiceError(`Goal with id ${goal.id} cannot have tasks updated since it is archived`);
             }
 
             if (req.title !== undefined) {
@@ -337,6 +378,52 @@ export class Service {
         return await this.handleMetric(req.metricId, newCollectedMetricEntry, MetricType.GAUGE);
     }
 
+    private async handleMetric(metricId: number, entry: CollectedMetricEntry, allowedType: MetricType): Promise<RecordForMetricResponse | IncrementMetricResponse> {
+        const newPlanAndSchedule = await this.dbModifyPlanAndSchedule(planAndSchedule => {
+            const plan = planAndSchedule.plan;
+            const schedule = planAndSchedule.schedule;
+
+            const metric = plan.metricsById.get(metricId);
+
+            if (metric === undefined) {
+                throw new ServiceError(`Metric with id ${metricId} does not exist for user ${Service.DEFAULT_USER_ID}`);
+            }
+
+            if (metric.type !== allowedType) {
+                throw new ServiceError(`Metric with id ${metricId} is not an ${allowedType}`);
+            }
+
+            const goal = plan.goalsById.get(metric.goalId);
+
+            if (goal === undefined) {
+                throw new CriticalServiceError(`Goal with id ${metric.goalId} does not exist for user ${Service.DEFAULT_USER_ID} and metric ${metricId}`);
+            } else if (goal.isArchived) {
+                throw new ServiceError(`Goal with id ${goal.id} cannot be operated upon since it is archived`);
+            } else if (goal.isDone) {
+                throw new ServiceError(`Goal with id ${goal.id} cannot be operated upon since it is done`);
+            }
+
+            const collectedMetric = schedule.collectedMetricsByMetricId.get(metricId);
+
+            if (collectedMetric === undefined) {
+                throw new CriticalServiceError(`Collected metric for metric with id ${metricId} does not exist`);
+            }
+
+            collectedMetric.entries.push(entry);
+            schedule.version.minor++;
+            schedule.idSerialHack++;
+            entry.id = schedule.idSerialHack;
+            entry.collectedMetricId = collectedMetric.id;
+
+            return [WhatToSave.SCHEDULE, planAndSchedule];
+        });
+
+        return {
+            plan: newPlanAndSchedule.plan,
+            schedule: newPlanAndSchedule.schedule
+        };
+    }
+
     public async markTaskAsDone(req: MarkTaskAsDoneRequest): Promise<MarkTaskAsDoneResponse> {
 
         const newPlanAndSchedule = await this.dbModifyPlanAndSchedule(planAndSchedule => {
@@ -354,9 +441,9 @@ export class Service {
 
             if (goal === undefined) {
                 throw new CriticalServiceError(`Goal with id ${task.goalId} does not exist for user ${Service.DEFAULT_USER_ID}`);
-            }
-
-            if (goal.isDone) {
+            } else if (goal.isArchived) {
+                throw new ServiceError(`Goal with id ${goal.id} cannot be operated upon since it is archived`);
+            } else if (goal.isDone) {
                 throw new ServiceError(`Goal with id ${goal.id} cannot be operated upon since it is done`);
             }
 
@@ -418,9 +505,9 @@ export class Service {
 
                 if (goal === undefined) {
                     throw new CriticalServiceError(`Goal with id ${task.goalId} does not exist for ${task.id}`);
-                }
-
-                if (goal.isDone) {
+                } else if (goal.isArchived) {
+                    continue;
+                } else if (goal.isDone) {
                     continue;
                 }
 
@@ -450,52 +537,6 @@ export class Service {
                 return [WhatToSave.NONE, planAndSchedule];
             }
         });
-    }
-
-    private async handleMetric(metricId: number, entry: CollectedMetricEntry, allowedType: MetricType): Promise<RecordForMetricResponse | IncrementMetricResponse> {
-        const newPlanAndSchedule = await this.dbModifyPlanAndSchedule(planAndSchedule => {
-            const plan = planAndSchedule.plan;
-            const schedule = planAndSchedule.schedule;
-
-            const metric = plan.metricsById.get(metricId);
-
-            if (metric === undefined) {
-                throw new ServiceError(`Metric with id ${metricId} does not exist for user ${Service.DEFAULT_USER_ID}`);
-            }
-
-            if (metric.type !== allowedType) {
-                throw new ServiceError(`Metric with id ${metricId} is not an ${allowedType}`);
-            }
-
-            const goal = plan.goalsById.get(metric.goalId);
-
-            if (goal === undefined) {
-                throw new CriticalServiceError(`Goal with id ${metric.goalId} does not exist for user ${Service.DEFAULT_USER_ID} and metric ${metricId}`);
-            }
-
-            if (goal.isDone) {
-                throw new ServiceError(`Goal with id ${goal.id} cannot be operated upon since it is done`);
-            }
-
-            const collectedMetric = schedule.collectedMetricsByMetricId.get(metricId);
-
-            if (collectedMetric === undefined) {
-                throw new CriticalServiceError(`Collected metric for metric with id ${metricId} does not exist`);
-            }
-
-            collectedMetric.entries.push(entry);
-            schedule.version.minor++;
-            schedule.idSerialHack++;
-            entry.id = schedule.idSerialHack;
-            entry.collectedMetricId = collectedMetric.id;
-
-            return [WhatToSave.SCHEDULE, planAndSchedule];
-        });
-
-        return {
-            plan: newPlanAndSchedule.plan,
-            schedule: newPlanAndSchedule.schedule
-        };
     }
 
     private async dbGetLatestPlanAndSchedule(): Promise<PlanAndSchedule> {
@@ -773,8 +814,9 @@ export class Service {
                     tasks: [],
                     boards: [],
                     canBeMarkedAsDone: false,
-                    canBeRemoved: false,
-                    isDone: false
+                    isDone: false,
+                    canBeArchived: false,
+                    isArchived: false
                 }],
                 idSerialHack: 1,
                 goalsById: new Map<number, Goal>(),
@@ -826,6 +868,14 @@ export interface MarkGoalAsDoneRequest {
 }
 
 export interface MarkGoalAsDoneResponse {
+    plan: Plan;
+}
+
+export interface ArchiveGoalRequest {
+    goalId: number;
+}
+
+export interface ArchiveGoalResponse {
     plan: Plan;
 }
 

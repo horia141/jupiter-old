@@ -58,7 +58,7 @@ async function main() {
         });
 
     vorpal
-        .command("plan:mark-as-done <goalId>")
+        .command("plan:mark-goal-as-done <goalId>")
         .description("Mark a goal as done")
         .action(async function (this: Vorpal, args: Args) {
             const goalId = Number.parseInt(args.goalId);
@@ -66,6 +66,18 @@ async function main() {
                 goalId: goalId
             };
             const res = await service.markGoalAsDone(req);
+            this.log(printPlan(res.plan));
+        });
+
+    vorpal
+        .command("plan:archive-goal <goalId>")
+        .description("Archive a goal")
+        .action(async function (this: Vorpal, args: Args) {
+            const goalId = Number.parseInt(args.goalId);
+            const req = {
+                goalId: goalId
+            };
+            const res = await service.archiveGoal(req);
             this.log(printPlan(res.plan));
         });
 
@@ -169,7 +181,7 @@ async function main() {
         });
 
     vorpal
-        .command("schedule:mark-as-done <taskId>")
+        .command("schedule:mark-task-as-done <taskId>")
         .description("Marks a task as done")
         .action(async function (this: Vorpal, args: Args) {
             const taskId = Number.parseInt(args.taskId);
@@ -191,7 +203,7 @@ function printPlan(plan: Plan): string {
     res.push(`id=${plan.id}`);
 
     for (const goal of plan.goals) {
-        if (goal.isDone) {
+        if (goal.isArchived || goal.isDone) {
             continue;
         }
 
