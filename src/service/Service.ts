@@ -76,7 +76,7 @@ export class Service {
         const newGoal: Goal = {
             id: -1,
             title: req.title,
-            description: "",
+            description: req.description,
             range: GoalRange.LIFETIME,
             subgoals: [],
             metrics: [],
@@ -116,6 +116,9 @@ export class Service {
 
             if (req.title !== undefined) {
                 goal.title = req.title;
+            }
+            if (req.description !== undefined) {
+                goal.description = req.description;
             }
             planAndSchedule.plan.version.minor++;
 
@@ -848,6 +851,7 @@ export interface GetLatestPlanResponse {
 
 export interface CreateGoalRequest {
     title: string;
+    description?: string;
 }
 
 export interface CreateGoalResponse {
@@ -857,6 +861,7 @@ export interface CreateGoalResponse {
 export interface UpdateGoalRequest {
     goalId: number;
     title?: string;
+    description?: string;
 }
 
 export interface UpdateGoalResponse {

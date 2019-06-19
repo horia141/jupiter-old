@@ -18,7 +18,7 @@ export interface Plan {
 export interface Goal {
     id: number;
     title: string;
-    description: string;
+    description?: string;
     range: GoalRange;
     deadline?: moment.Moment;
     subgoals: Goal[];

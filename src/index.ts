@@ -34,10 +34,14 @@ async function main() {
     vorpal
         .command("plan:new-goal <title...>")
         .description("Adds a new goal to the current plan")
+        .option("-d, --description <desc>", "Add a description to the goal")
+        .types({ string: [ "d", "description" ]})
         .action(async function (this: Vorpal, args: Args) {
             const title = args.title.join(" ");
+            const description = args.options.description;
             const req = {
-                title: title
+                title: title,
+                description: description
             };
             const res = await service.createGoal(req);
             this.log(printPlan(res.plan));
@@ -52,6 +56,20 @@ async function main() {
             const req = {
                 goalId: goalId,
                 title: title
+            };
+            const res = await service.updateGoal(req);
+            this.log(printPlan(res.plan));
+        });
+
+    vorpal
+        .command("plan:set-goal-description <goalId> <description...>")
+        .description("Change the description of a given goal")
+        .action(async function (this: Vorpal, args: Args) {
+            const goalId = Number.parseInt(args.goalId);
+            const description = args.description.join(" ");
+            const req = {
+                goalId: goalId,
+                description: description
             };
             const res = await service.updateGoal(req);
             this.log(printPlan(res.plan));
