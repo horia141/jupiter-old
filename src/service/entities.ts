@@ -59,8 +59,8 @@ export interface Task {
     id: number;
     goalId: number;
     title: string;
-    priority: TaskPriority;
     description?: string;
+    priority: TaskPriority;
     deadline?: moment.Moment;
     repeatSchedule?: TaskRepeatSchedule;
     reminderPolicy?: any;

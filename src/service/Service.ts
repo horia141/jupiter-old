@@ -93,6 +93,7 @@ export class Service {
 
         const newPlanAndSchedule = await this.dbModifyPlanAndSchedule(planAndSchedule => {
             const plan = planAndSchedule.plan;
+
             if (req.parentGoalId === undefined) {
                 plan.goals.push(newGoal);
             } else {
