@@ -73,11 +73,14 @@ export class Service {
 
     public async createGoal(req: CreateGoalRequest): Promise<CreateGoalResponse> {
 
+        const rightNow = moment.utc();
+
         const newGoal: Goal = {
             id: -1,
             title: req.title,
             description: req.description,
-            range: GoalRange.LIFETIME,
+            range: req.range,
+            deadline: Service.deadlineFromRange(rightNow, req.range),
             subgoals: [],
             metrics: [],
             tasks: [],
@@ -105,6 +108,8 @@ export class Service {
 
     public async updateGoal(req: UpdateGoalRequest): Promise<UpdateGoalResponse> {
 
+        const rightNow = moment.utc();
+
         const newPlanAndSchedule = await this.dbModifyPlanAndSchedule(planAndSchedule => {
             const goal = planAndSchedule.plan.goalsById.get(req.goalId);
 
@@ -119,6 +124,10 @@ export class Service {
             }
             if (req.description !== undefined) {
                 goal.description = req.description;
+            }
+            if (req.range !== undefined) {
+                goal.range = req.range;
+                goal.deadline = Service.deadlineFromRange(rightNow, req.range);
             }
             planAndSchedule.plan.version.minor++;
 
@@ -682,7 +691,7 @@ export class Service {
         const plan: Plan = {
             id: planRow["id"],
             version: dbPlan.version,
-            goals: dbPlan.goals,
+            goals: dbPlan.goals.map((g: any) => Service.dbGoalToGoal(g)),
             idSerialHack: dbPlan.idSerialHack,
             goalsById: new Map<number, Goal>(),
             metricsById: new Map<number, Metric>(),
@@ -705,11 +714,48 @@ export class Service {
         return plan;
     }
 
+    private static dbGoalToGoal(goalRow: any): Goal {
+        return {
+            id: goalRow.id,
+            title: goalRow.title,
+            description: goalRow.description,
+            range: goalRow.range,
+            deadline: goalRow.deadline ? moment.unix(goalRow.deadline).utc() : undefined,
+            subgoals: goalRow.subgoals.map((g: any) => Service.dbGoalToGoal(g)),
+            metrics: goalRow.metrics,
+            tasks: goalRow.tasks,
+            boards: goalRow.boards,
+            canBeMarkedAsDone: goalRow.canBeMarkedAsDone,
+            isDone: goalRow.isDone,
+            canBeArchived: goalRow.canBeArchived,
+            isArchived: goalRow.isArchived
+        };
+    }
+
+
     private static planToDbPlan(plan: Plan): any {
         return {
             version: plan.version,
-            goals: plan.goals,
+            goals: plan.goals.map(g => Service.goalToDbGoal(g)),
             idSerialHack: plan.idSerialHack
+        };
+    }
+
+    private static goalToDbGoal(goal: Goal): any {
+        return {
+            id: goal.id,
+            title: goal.title,
+            description: goal.description,
+            range: goal.range,
+            deadline: goal.deadline ? goal.deadline.unix() : undefined,
+            subgoals: goal.subgoals.map(g => Service.goalToDbGoal(g)),
+            metrics: goal.metrics,
+            tasks: goal.tasks,
+            boards: goal.boards,
+            canBeMarkedAsDone: goal.canBeMarkedAsDone,
+            isDone: goal.isDone,
+            canBeArchived: goal.canBeArchived,
+            isArchived: goal.isArchived
         };
     }
 
@@ -728,7 +774,7 @@ export class Service {
                         return {
                             id: smp.id,
                             collectedMetricId: smp.collectedMetricId,
-                            timestamp: moment.unix(smp.timestamp),
+                            timestamp: moment.unix(smp.timestamp).utc(),
                             value: smp.value
                         };
                     })
@@ -743,7 +789,7 @@ export class Service {
                             id: ste.id,
                             scheduledTaskId: ste.scheduledTaskId,
                             isDone: ste.isDone,
-                            repeatScheduleAt: moment.unix(ste.repeatScheduleAt)
+                            repeatScheduleAt: moment.unix(ste.repeatScheduleAt).utc()
                         };
                     })
                 };
@@ -843,6 +889,21 @@ export class Service {
 
         return newPlanAndSchedule;
     }
+
+    private static deadlineFromRange(rightNow: moment.Moment, range: GoalRange): moment.Moment | undefined {
+        switch (range) {
+            case GoalRange.LIFETIME:
+                return undefined;
+            case GoalRange.FIVE_YEARS:
+                return rightNow.endOf("year").add(5, "year");
+            case GoalRange.YEAR:
+                return rightNow.endOf("year");
+            case GoalRange.QUARTER:
+                return rightNow.endOf("quarter");
+            case GoalRange.MONTH:
+                return rightNow.endOf("month");
+        }
+    }
 }
 
 export interface GetLatestPlanResponse {
@@ -852,6 +913,7 @@ export interface GetLatestPlanResponse {
 export interface CreateGoalRequest {
     title: string;
     description?: string;
+    range: GoalRange;
 }
 
 export interface CreateGoalResponse {
@@ -862,6 +924,7 @@ export interface UpdateGoalRequest {
     goalId: number;
     title?: string;
     description?: string;
+    range?: GoalRange;
 }
 
 export interface UpdateGoalResponse {

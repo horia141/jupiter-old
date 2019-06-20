@@ -39,6 +39,10 @@ export enum GoalRange {
     MONTH = "month"
 }
 
+export function getGoalRange(): Array<GoalRange> {
+    return [GoalRange.LIFETIME, GoalRange.FIVE_YEARS, GoalRange.YEAR, GoalRange.QUARTER, GoalRange.MONTH];
+}
+
 export interface Metric {
     id: number;
     goalId: number;
@@ -76,6 +80,10 @@ export enum TaskRepeatSchedule {
     MONTHLY = "monthly",
     WEEKLY = "weekly",
     DAILY = "daily"
+}
+
+export function getTaskRepeatSchedule(): Array<TaskRepeatSchedule> {
+    return [TaskRepeatSchedule.DAILY, TaskRepeatSchedule.WEEKLY, TaskRepeatSchedule.MONTHLY, TaskRepeatSchedule.QUARTERLY, TaskRepeatSchedule.YEARLY];
 }
 
 export interface SubTask {

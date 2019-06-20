@@ -3,7 +3,17 @@ import {Args} from "vorpal";
 import * as knex from "knex";
 
 import {Service} from "./service/Service";
-import {CollectedMetric, Goal, MetricType, Plan, Schedule, ScheduledTask, TaskRepeatSchedule} from "./service/entities";
+import {
+    CollectedMetric,
+    getGoalRange,
+    getTaskRepeatSchedule,
+    Goal,
+    GoalRange,
+    MetricType,
+    Plan,
+    Schedule,
+    ScheduledTask
+} from "./service/entities";
 
 async function main() {
 
@@ -35,13 +45,20 @@ async function main() {
         .command("plan:new-goal <title...>")
         .description("Adds a new goal to the current plan")
         .option("-d, --description <desc>", "Add a description to the goal")
-        .types({ string: [ "d", "description" ]})
+        .option("-r, --range <range>", "The range of the goal in time", getGoalRange())
+        .types({ string: [ "d", "description", "r", "range" ]})
         .action(async function (this: Vorpal, args: Args) {
             const title = args.title.join(" ");
             const description = args.options.description;
+            const range = args.options.range !== undefined ? (args.options.range as GoalRange) : GoalRange.LIFETIME;
+            if (getGoalRange().indexOf(range) === -1) {
+                throw new Error(`Invalid goal range ${range}`);
+            }
+
             const req = {
                 title: title,
-                description: description
+                description: description,
+                range: range
             };
             const res = await service.createGoal(req);
             this.log(printPlan(res.plan));
@@ -70,6 +87,24 @@ async function main() {
             const req = {
                 goalId: goalId,
                 description: description
+            };
+            const res = await service.updateGoal(req);
+            this.log(printPlan(res.plan));
+        });
+
+    vorpal
+        .command("plan:set-goal-range <goalId> <range>")
+        .description("Change the range of the given goal")
+        .autocomplete(getGoalRange())
+        .action(async function (this: Vorpal, args: Args) {
+            const goalId = Number.parseInt(args.goalId);
+            const range = args.range;
+            if (getGoalRange().indexOf(range) === -1) {
+                throw new Error(`Invalid goal range ${range}`);
+            }
+            const req = {
+                goalId: goalId,
+                range: range
             };
             const res = await service.updateGoal(req);
             this.log(printPlan(res.plan));
@@ -133,14 +168,15 @@ async function main() {
     vorpal
         .command("plan:new-task <goalId> <title...>")
         .description("Add a new task to a goal")
-        .option(
-            "-r, --repeatSchedule <schedule>",
-            "Makes this task repeat according to a schedule",
-            [TaskRepeatSchedule.DAILY, TaskRepeatSchedule.WEEKLY, TaskRepeatSchedule.MONTHLY, TaskRepeatSchedule.QUARTERLY, TaskRepeatSchedule.YEARLY])
+        .option("-r, --repeatSchedule <schedule>", "Makes this task repeat according to a schedule", getTaskRepeatSchedule())
         .action(async function (this: Vorpal, args: Args) {
             const title = args.title.join(" ");
             const goalId = Number.parseInt(args.goalId);
             const repeatSchedule = args.options.repeatSchedule;
+            if (getTaskRepeatSchedule().findIndex(repeatSchedule) === -1) {
+                throw new Error(`Invalid task repeat schedule ${repeatSchedule}`);
+            }
+
             const req = {
                 title: title,
                 goalId: goalId,
@@ -234,7 +270,7 @@ function printPlan(plan: Plan): string {
 function printGoal(goal: Goal): string {
     const res = [];
 
-    res.push(`[${goal.id}] ${goal.title}:`);
+    res.push(`[${goal.id}] ${goal.title} (${goal.range}@${goal.deadline ? goal.deadline.format("YYYY-MM-DD hh:mm UTC") : ""}):`);
 
     if (goal.metrics.length > 0) {
 
