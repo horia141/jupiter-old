@@ -545,8 +545,14 @@ export class Service {
                 const lastEntry = scheduledTask.entries[scheduledTask.entries.length - 1]; // Guaranteed to always exist!
                 const lastEntryRepeatScheduleAt = lastEntry.repeatScheduleAt.startOf("day"); // Should already be here!
 
+                if (goal.deadline && lastEntryRepeatScheduleAt.isSameOrAfter(goal.deadline)) {
+                    continue;
+                }
+
                 for (let date = lastEntryRepeatScheduleAt; date < rightNowDay; date = date.add(1, "day")) {
                     if (!shouldAddRepeatedTaskToScheduleBasedOnDate(date, task.repeatSchedule)) {
+                        continue;
+                    } else if (goal.deadline && date.isSameOrAfter(goal.deadline)) {
                         continue;
                     }
 
