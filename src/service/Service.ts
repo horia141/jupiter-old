@@ -92,7 +92,26 @@ export class Service {
         };
 
         const newPlanAndSchedule = await this.dbModifyPlanAndSchedule(planAndSchedule => {
-            planAndSchedule.plan.goals.push(newGoal);
+            const plan = planAndSchedule.plan;
+            if (req.parentGoalId === undefined) {
+                plan.goals.push(newGoal);
+            } else {
+                const parentGoal = plan.goalsById.get(req.parentGoalId);
+
+                if (parentGoal === undefined) {
+                    throw new ServiceError(`Goal with id ${req.parentGoalId} does not exist`);
+                } else if (parentGoal.isArchived) {
+                    throw new ServiceError(`Goal with id ${req.parentGoalId} is archived`);
+                } else if (parentGoal.isDone) {
+                    throw new ServiceError(`Goal with id ${req.parentGoalId} is done`);
+                }
+
+                newGoal.range = Service.limitRangeToParentRange(newGoal.range, parentGoal.range);
+                newGoal.deadline = Service.deadlineFromRange(rightNow, newGoal.range);
+
+                parentGoal.subgoals.push(newGoal);
+            }
+
             planAndSchedule.plan.version.minor++;
             planAndSchedule.plan.idSerialHack++;
             newGoal.id = planAndSchedule.plan.idSerialHack;
@@ -685,21 +704,8 @@ export class Service {
     }
 
     private static dbPlanToPlan(planRow: any): Plan {
-        // TODO(horia141): Proper deserialization here!
-        const dbPlan = planRow["plan"];
 
-        const plan: Plan = {
-            id: planRow["id"],
-            version: dbPlan.version,
-            goals: dbPlan.goals.map((g: any) => Service.dbGoalToGoal(g)),
-            idSerialHack: dbPlan.idSerialHack,
-            goalsById: new Map<number, Goal>(),
-            metricsById: new Map<number, Metric>(),
-            tasksById: new Map<number, Task>()
-        };
-
-        // TODO(horia141): deal with subgoals here!
-        for (const goal of plan.goals) {
+        function populateIndices(plan: Plan, goal: Goal): void {
             plan.goalsById.set(goal.id, goal);
 
             for (const metric of goal.metrics) {
@@ -709,6 +715,26 @@ export class Service {
             for (const task of goal.tasks) {
                 plan.tasksById.set(task.id, task);
             }
+
+            for (const subGoal of goal.subgoals) {
+                populateIndices(plan, subGoal);
+            }
+        }
+
+        const dbPlan = planRow["plan"];
+
+        const plan: Plan = {
+            id: planRow.id,
+            version: dbPlan.version,
+            goals: dbPlan.goals.map((g: any) => Service.dbGoalToGoal(g)),
+            idSerialHack: dbPlan.idSerialHack,
+            goalsById: new Map<number, Goal>(),
+            metricsById: new Map<number, Metric>(),
+            tasksById: new Map<number, Task>()
+        };
+
+        for (const goal of plan.goals) {
+            populateIndices(plan, goal);
         }
 
         return plan;
@@ -760,11 +786,11 @@ export class Service {
     }
 
     private static dbScheduleToSchedule(scheduleRow: any): Schedule {
-        // TODO(horia141): Proper deserializtion here!
+
         const dbSchedule = scheduleRow["schedule"];
 
         const schedule: Schedule = {
-            id: scheduleRow["id"],
+            id: scheduleRow.id,
             version: dbSchedule.version,
             collectedMetrics: dbSchedule.collectedMetrics.map((cm: any) => {
                 return {
@@ -904,6 +930,42 @@ export class Service {
                 return rightNow.endOf("month");
         }
     }
+
+    private static limitRangeToParentRange(range: GoalRange, parentRange: GoalRange): GoalRange {
+        switch (parentRange) {
+            case GoalRange.LIFETIME:
+                return range;
+            case GoalRange.FIVE_YEARS:
+                switch (range) {
+                    case GoalRange.LIFETIME:
+                    case GoalRange.FIVE_YEARS:
+                        return parentRange;
+                    default:
+                        return range;
+                }
+            case GoalRange.YEAR:
+                switch (range) {
+                    case GoalRange.LIFETIME:
+                    case GoalRange.FIVE_YEARS:
+                    case GoalRange.YEAR:
+                        return parentRange;
+                    default:
+                        return range;
+                }
+            case GoalRange.QUARTER:
+                switch (range) {
+                    case GoalRange.LIFETIME:
+                    case GoalRange.FIVE_YEARS:
+                    case GoalRange.YEAR:
+                    case GoalRange.QUARTER:
+                        return parentRange;
+                    default:
+                        return range;
+                }
+            case GoalRange.MONTH:
+                return parentRange;
+        }
+    }
 }
 
 export interface GetLatestPlanResponse {
@@ -914,6 +976,7 @@ export interface CreateGoalRequest {
     title: string;
     description?: string;
     range: GoalRange;
+    parentGoalId?: number;
 }
 
 export interface CreateGoalResponse {

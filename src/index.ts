@@ -46,7 +46,8 @@ async function main() {
         .description("Adds a new goal to the current plan")
         .option("-d, --description <desc>", "Add a description to the goal")
         .option("-r, --range <range>", "The range of the goal in time", getGoalRange())
-        .types({ string: [ "d", "description", "r", "range" ]})
+        .option("-c, --childOf <parentGoalId>", "The parent goal to nest this under")
+        .types({ string: [ "d", "description", "r", "range", "c", "childOf" ]})
         .action(async function (this: Vorpal, args: Args) {
             const title = args.title.join(" ");
             const description = args.options.description;
@@ -54,11 +55,13 @@ async function main() {
             if (getGoalRange().indexOf(range) === -1) {
                 throw new Error(`Invalid goal range ${range}`);
             }
+            const parentGoalId = args.options.childOf ? Number.parseInt(args.options.childOf) : undefined;
 
             const req = {
                 title: title,
                 description: description,
-                range: range
+                range: range,
+                parentGoalId: parentGoalId
             };
             const res = await service.createGoal(req);
             this.log(printPlan(res.plan));
@@ -267,26 +270,36 @@ function printPlan(plan: Plan): string {
     return res.join("\n");
 }
 
-function printGoal(goal: Goal): string {
+function printGoal(goal: Goal, indent: number = 0): string {
     const res = [];
 
-    res.push(`[${goal.id}] ${goal.title} (${goal.range}@${goal.deadline ? goal.deadline.format("YYYY-MM-DD hh:mm UTC") : ""}):`);
+    const indentStr = " ".repeat(indent);
+
+    res.push(`${indentStr}[${goal.id}] ${goal.title} (${goal.range}@${goal.deadline ? goal.deadline.format("YYYY-MM-DD hh:mm UTC") : ""}):`);
+
+    if (goal.subgoals.length > 0) {
+        res.push(`${indentStr}  subgoals:`);
+
+        for (const subGoal of goal.subgoals) {
+            res.push(printGoal(subGoal, indent + 2));
+        }
+    }
 
     if (goal.metrics.length > 0) {
 
-        res.push("  metrics:");
+        res.push(`${indentStr}  metrics:`);
 
         for (const metric of goal.metrics) {
-            res.push(`    [${metric.id}] ${metric.type === MetricType.GAUGE ? 'g' : 'c'} ${metric.title}`);
+            res.push(`${indentStr}    [${metric.id}] ${metric.type === MetricType.GAUGE ? 'g' : 'c'} ${metric.title}`);
         }
     }
 
     if (goal.tasks.length > 0) {
 
-        res.push("  tasks:");
+        res.push(`${indentStr}  tasks:`);
 
         for (const task of goal.tasks) {
-            res.push(`    [${task.id}] ${task.title}`);
+            res.push(`${indentStr}    [${task.id}] ${task.title}`);
         }
     }
 
