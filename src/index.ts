@@ -68,6 +68,21 @@ async function main() {
         });
 
     vorpal
+        .command("plan:move-goal <goalId> [parentGoalId]")
+        .description("Moves a goal to be a child of another goal or at the toplevel if none is given")
+        .action(async function (this: Vorpal, args: Args) {
+            const goalId = Number.parseInt(args.goalId);
+            const parentGoalId = args.parentGoalId !== undefined ? Number.parseInt(args.parentGoalId) : undefined;
+
+            const req = {
+                goalId: goalId,
+                parentGoalId: parentGoalId
+            };
+            const res = await service.moveGoal(req);
+            this.log(printPlan(res.plan));
+        });
+
+    vorpal
         .command("plan:set-goal-title <goalId> <title...>")
         .description("Change the title of a given goal")
         .action(async function (this: Vorpal, args: Args) {

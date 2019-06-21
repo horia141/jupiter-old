@@ -17,6 +17,7 @@ export interface Plan {
 
 export interface Goal {
     id: number;
+    parentGoalId?: number;
     title: string;
     description?: string;
     range: GoalRange;

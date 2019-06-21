@@ -1,5 +1,4 @@
 Commands to add:
-* Move goal to be child of X / toplevel
 * Add notion of goal order and commands to shift goals around.
 * Add notion of metric order and commands to shift metrics around
 * Add notion of task order and commands to shift tasks around
@@ -13,3 +12,6 @@ Commands to add:
 * Move subtask to be a child of a another subtask of of top-level task
 * Add notion of subtask order and commands to shift subtasks around
 * Serialisation of all entities
+* Get goal and make sure it's not archived or done
+* Make inbox uneditable basically!
+* Make move avoid circular paths!

@@ -77,6 +77,7 @@ export class Service {
 
         const newGoal: Goal = {
             id: -1,
+            parentGoalId: req.parentGoalId,
             title: req.title,
             description: req.description,
             range: req.range,
@@ -117,6 +118,98 @@ export class Service {
             planAndSchedule.plan.idSerialHack++;
             newGoal.id = planAndSchedule.plan.idSerialHack;
             planAndSchedule.plan.goalsById.set(newGoal.id, newGoal);
+
+            return [WhatToSave.PLAN_AND_SCHEDULE, planAndSchedule];
+        });
+
+        return {
+            plan: newPlanAndSchedule.plan
+        };
+    }
+
+    public async moveGoal(req: MoveGoalRequest): Promise<MoveGoalResponse> {
+
+        const rightNow = moment.utc();
+
+        const newPlanAndSchedule = await this.dbModifyPlanAndSchedule(planAndSchedule => {
+            const plan = planAndSchedule.plan;
+            const goal = plan.goalsById.get(req.goalId);
+
+            if (goal === undefined) {
+                throw new ServiceError(`Goal with id ${req.goalId} does not exist for user ${Service.DEFAULT_USER_ID}`);
+            } else if (goal.isArchived) {
+                throw new ServiceError(`Goal with id ${req.goalId} is archived`);
+            }
+
+            if (req.parentGoalId === undefined && goal.parentGoalId === undefined) {
+                // Nothing to do here - goal is already at toplevel.
+            } else if (req.parentGoalId === undefined && goal.parentGoalId !== undefined) {
+
+                const parentGoal = plan.goalsById.get(goal.parentGoalId);
+
+                if (parentGoal === undefined) {
+                    throw new CriticalServiceError(`Goal with id ${req.goalId} is supposed to have a parent of id ${goal.parentGoalId}`);
+                } else if (parentGoal.isArchived) {
+                    throw new ServiceError(`Cannot move goal ${req.goalId} from under it's archived parent ${goal.parentGoalId}`);
+                }
+
+                goal.parentGoalId = undefined;
+                const index = parentGoal.subgoals.findIndex(g => g.id === goal.id);
+                parentGoal.subgoals.splice(index, 1);
+                plan.goals.push(goal);
+            } else if (req.parentGoalId !== undefined && goal.parentGoalId === undefined) {
+
+                const parentGoal = plan.goalsById.get(req.parentGoalId);
+
+                if (parentGoal === undefined) {
+                    throw new ServiceError(`Goal with id ${req.parentGoalId} does not exist`);
+                } else if (parentGoal.isArchived) {
+                    throw new ServiceError(`Goal with id ${req.parentGoalId} is archived`);
+                } else if (parentGoal.isDone) {
+                    throw new ServiceError(`Goal with id ${req.parentGoalId} is done`);
+                }
+
+                goal.parentGoalId = req.parentGoalId;
+                goal.range = Service.limitRangeToParentRange(goal.range, parentGoal.range);
+                goal.deadline = Service.deadlineFromRange(rightNow, goal.range);
+
+                const index = plan.goals.findIndex( g => g.id === goal.id);
+                plan.goals.splice(index, 1);
+
+                parentGoal.subgoals.push(goal);
+
+            } else if (req.parentGoalId !== undefined && goal.parentGoalId !== undefined) {
+
+                const oldParentGoal = plan.goalsById.get(goal.parentGoalId);
+
+                if (oldParentGoal === undefined) {
+                    throw new CriticalServiceError(`Goal with id ${req.goalId} is supposed to have a parent of id ${goal.parentGoalId}`);
+                } else if (oldParentGoal.isArchived) {
+                    throw new ServiceError(`Cannot move goal ${req.goalId} from under it's archived parent ${goal.parentGoalId}`);
+                }
+
+                const parentGoal = plan.goalsById.get(req.parentGoalId);
+
+                if (parentGoal === undefined) {
+                    throw new ServiceError(`Goal with id ${req.parentGoalId} does not exist`);
+                } else if (parentGoal.isArchived) {
+                    throw new ServiceError(`Goal with id ${req.parentGoalId} is archived`);
+                } else if (parentGoal.isDone) {
+                    throw new ServiceError(`Goal with id ${req.parentGoalId} is done`);
+                }
+
+                goal.parentGoalId = req.parentGoalId;
+                const index = oldParentGoal.subgoals.findIndex(g => g.id === goal.id);
+                oldParentGoal.subgoals.splice(index, 1);
+
+                goal.parentGoalId = req.parentGoalId;
+                goal.range = Service.limitRangeToParentRange(goal.range, parentGoal.range);
+                goal.deadline = Service.deadlineFromRange(rightNow, goal.range);
+
+                parentGoal.subgoals.push(goal);
+            }
+
+            planAndSchedule.plan.version.minor++;
 
             return [WhatToSave.PLAN_AND_SCHEDULE, planAndSchedule];
         });
@@ -750,6 +843,7 @@ export class Service {
     private static dbGoalToGoal(goalRow: any): Goal {
         return {
             id: goalRow.id,
+            parentGoalId: goalRow.parentGoalId,
             title: goalRow.title,
             description: goalRow.description,
             range: goalRow.range,
@@ -777,6 +871,7 @@ export class Service {
     private static goalToDbGoal(goal: Goal): any {
         return {
             id: goal.id,
+            parentGoalId: goal.parentGoalId,
             title: goal.title,
             description: goal.description,
             range: goal.range,
@@ -987,6 +1082,15 @@ export interface CreateGoalRequest {
 }
 
 export interface CreateGoalResponse {
+    plan: Plan;
+}
+
+export interface MoveGoalRequest {
+    goalId: number;
+    parentGoalId?: number;
+}
+
+export interface MoveGoalResponse {
     plan: Plan;
 }
 
