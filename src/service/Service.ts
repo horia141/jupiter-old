@@ -3,6 +3,7 @@ import {Transaction} from "knex";
 import * as moment from "moment";
 
 import {
+    Board,
     CollectedMetric,
     CollectedMetricEntry,
     Goal,
@@ -11,7 +12,7 @@ import {
     MetricType,
     Plan,
     Schedule,
-    ScheduledTask,
+    ScheduledTask, SubTask,
     Task,
     TaskPriority,
     TaskRepeatSchedule
@@ -70,6 +71,8 @@ export class Service {
             plan: plan
         };
     }
+
+    // Plans
 
     public async createGoal(req: CreateGoalRequest): Promise<CreateGoalResponse> {
 
@@ -308,9 +311,14 @@ export class Service {
             id: -1,
             goalId: req.goalId,
             title: req.title,
+            description: undefined,
             priority: TaskPriority.NORMAL,
-            inProgress: false,
-            repeatSchedule: req.repeatSchedule
+            deadline: undefined,
+            repeatSchedule: req.repeatSchedule,
+            reminderPolicy: undefined,
+            subtasks: [],
+            donePolicy: undefined,
+            inProgress: false
         };
 
         const newScheduledTask: ScheduledTask = {
@@ -375,6 +383,8 @@ export class Service {
             plan: newPlanAndSchedule.plan
         };
     }
+
+    // Schedules
 
     public async getLatestSchedule(): Promise<GetLatestScheduleResponse> {
         const planAndSchedule = await this.dbGetLatestPlanAndSchedule();
@@ -560,6 +570,8 @@ export class Service {
         });
     }
 
+    // DB access & helpers
+
     private async dbGetLatestPlanAndSchedule(): Promise<PlanAndSchedule> {
         return await this.conn.transaction(async (trx: Transaction) => {
             const plan = await this.dbGetLatestPlan(trx, Service.DEFAULT_USER_ID);
@@ -739,13 +751,53 @@ export class Service {
             range: goalRow.range,
             deadline: goalRow.deadline ? moment.unix(goalRow.deadline).utc() : undefined,
             subgoals: goalRow.subgoals.map((g: any) => Service.dbGoalToGoal(g)),
-            metrics: goalRow.metrics,
-            tasks: goalRow.tasks,
-            boards: goalRow.boards,
+            metrics: goalRow.metrics.map((m: any) => Service.dbMetricToMetric(m)),
+            tasks: goalRow.tasks.map((t: any) => Service.dbTaskToTask(t)),
+            boards: goalRow.boards.map((b: any) => Service.dbBoardToBoard(b)),
             canBeMarkedAsDone: goalRow.canBeMarkedAsDone,
             isDone: goalRow.isDone,
             canBeArchived: goalRow.canBeArchived,
             isArchived: goalRow.isArchived
+        };
+    }
+
+    private static dbMetricToMetric(metricRow: any): Metric {
+        return {
+            id: metricRow.id,
+            goalId: metricRow.goalid,
+            title: metricRow.title,
+            type: metricRow.type
+        };
+    }
+
+    private static dbTaskToTask(taskRow: any): Task {
+        return {
+            id: taskRow.id,
+            goalId: taskRow.goalId,
+            title: taskRow.title,
+            description: taskRow.description,
+            priority: taskRow.priority,
+            deadline: taskRow.deadline ? moment.unix(taskRow.deadline).utc() : undefined,
+            repeatSchedule: taskRow.repeatSchedule,
+            reminderPolicy: taskRow.reminderPolicy,
+            subtasks: taskRow.subtasks.map((st: any) => Service.dbSubTaskToSubTask(st)),
+            donePolicy: taskRow.donePolicy,
+            inProgress: taskRow.inProgress
+        };
+    }
+
+    private static dbSubTaskToSubTask(subTaskRow: any): SubTask {
+        return {
+            id: subTaskRow.id,
+            title: subTaskRow.title,
+            subtasks: subTaskRow.subtasks.map((st: any) => Service.dbSubTaskToSubTask(st))
+        };
+    }
+
+    private static dbBoardToBoard(boardRow: any): Board {
+        return {
+            id: boardRow.id,
+            title: boardRow.title
         };
     }
 
@@ -766,13 +818,53 @@ export class Service {
             range: goal.range,
             deadline: goal.deadline ? goal.deadline.unix() : undefined,
             subgoals: goal.subgoals.map(g => Service.goalToDbGoal(g)),
-            metrics: goal.metrics,
-            tasks: goal.tasks,
-            boards: goal.boards,
+            metrics: goal.metrics.map(m => Service.metricToDbMetric(m)),
+            tasks: goal.tasks.map(t => Service.taskToDbTask(t)),
+            boards: goal.boards.map(b => Service.boardToDbBoard(b)),
             canBeMarkedAsDone: goal.canBeMarkedAsDone,
             isDone: goal.isDone,
             canBeArchived: goal.canBeArchived,
             isArchived: goal.isArchived
+        };
+    }
+
+    private static metricToDbMetric(metric: Metric): any {
+        return {
+            id: metric.id,
+            goalId: metric.goalId,
+            title: metric.title,
+            type: metric.type
+        };
+    }
+
+    private static taskToDbTask(task: Task): any {
+        return {
+            id: task.id,
+            goalId: task.goalId,
+            title: task.title,
+            description: task.description,
+            priority: task.priority,
+            deadline: task.deadline ? task.deadline.unix() : undefined,
+            repeatSchedule: task.repeatSchedule,
+            reminderPolicy: task.reminderPolicy,
+            subtasks: task.subtasks.map(st => Service.subTaskToDbSubTask(st)),
+            donePolicy: task.donePolicy,
+            inProgress: task.inProgress
+        };
+    }
+
+    private static subTaskToDbSubTask(subTask: SubTask): any {
+        return {
+            id: subTask.id,
+            title: subTask.title,
+            subtasks: subTask.subtasks.map(st => Service.subTaskToDbSubTask(st))
+        };
+    }
+
+    private static boardToDbBoard(board: Board): any {
+        return {
+            id: board.id,
+            title: board.title
         };
     }
 

@@ -65,7 +65,7 @@ export interface Task {
     deadline?: moment.Moment;
     repeatSchedule?: TaskRepeatSchedule;
     reminderPolicy?: any;
-    subtasks?: SubTask[];
+    subtasks: SubTask[];
     donePolicy?: any;
     inProgress: boolean;
 }

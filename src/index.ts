@@ -191,7 +191,7 @@ async function main() {
             const title = args.title.join(" ");
             const goalId = Number.parseInt(args.goalId);
             const repeatSchedule = args.options.repeatSchedule;
-            if (getTaskRepeatSchedule().findIndex(repeatSchedule) === -1) {
+            if (repeatSchedule !== undefined && getTaskRepeatSchedule().indexOf(repeatSchedule) === -1) {
                 throw new Error(`Invalid task repeat schedule ${repeatSchedule}`);
             }
 
