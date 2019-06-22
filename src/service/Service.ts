@@ -98,19 +98,9 @@ export class Service {
             if (req.parentGoalId === undefined) {
                 plan.goals.push(newGoal);
             } else {
-                const parentGoal = plan.goalsById.get(req.parentGoalId);
-
-                if (parentGoal === undefined) {
-                    throw new ServiceError(`Goal with id ${req.parentGoalId} does not exist`);
-                } else if (parentGoal.isArchived) {
-                    throw new ServiceError(`Goal with id ${req.parentGoalId} is archived`);
-                } else if (parentGoal.isDone) {
-                    throw new ServiceError(`Goal with id ${req.parentGoalId} is done`);
-                }
-
+                const parentGoal = Service.getGoalById(plan, req.parentGoalId);
                 newGoal.range = Service.limitRangeToParentRange(newGoal.range, parentGoal.range);
                 newGoal.deadline = Service.deadlineFromRange(rightNow, newGoal.range);
-
                 parentGoal.subgoals.push(newGoal);
             }
 
@@ -133,79 +123,36 @@ export class Service {
 
         const newPlanAndSchedule = await this.dbModifyPlanAndSchedule(planAndSchedule => {
             const plan = planAndSchedule.plan;
-            const goal = plan.goalsById.get(req.goalId);
-
-            if (goal === undefined) {
-                throw new ServiceError(`Goal with id ${req.goalId} does not exist for user ${Service.DEFAULT_USER_ID}`);
-            } else if (goal.isArchived) {
-                throw new ServiceError(`Goal with id ${req.goalId} is archived`);
-            }
+            const goal = Service.getGoalById(plan, req.goalId, true);
 
             if (req.parentGoalId === undefined && goal.parentGoalId === undefined) {
                 // Nothing to do here - goal is already at toplevel.
             } else if (req.parentGoalId === undefined && goal.parentGoalId !== undefined) {
 
-                const parentGoal = plan.goalsById.get(goal.parentGoalId);
-
-                if (parentGoal === undefined) {
-                    throw new CriticalServiceError(`Goal with id ${req.goalId} is supposed to have a parent of id ${goal.parentGoalId}`);
-                } else if (parentGoal.isArchived) {
-                    throw new ServiceError(`Cannot move goal ${req.goalId} from under it's archived parent ${goal.parentGoalId}`);
-                }
-
+                const parentGoal = Service.getGoalById(plan, goal.parentGoalId, true);
                 goal.parentGoalId = undefined;
                 const index = parentGoal.subgoals.findIndex(g => g.id === goal.id);
                 parentGoal.subgoals.splice(index, 1);
                 plan.goals.push(goal);
             } else if (req.parentGoalId !== undefined && goal.parentGoalId === undefined) {
 
-                const parentGoal = plan.goalsById.get(req.parentGoalId);
-
-                if (parentGoal === undefined) {
-                    throw new ServiceError(`Goal with id ${req.parentGoalId} does not exist`);
-                } else if (parentGoal.isArchived) {
-                    throw new ServiceError(`Goal with id ${req.parentGoalId} is archived`);
-                } else if (parentGoal.isDone) {
-                    throw new ServiceError(`Goal with id ${req.parentGoalId} is done`);
-                }
-
+                const parentGoal = Service.getGoalById(plan, req.parentGoalId);
                 goal.parentGoalId = req.parentGoalId;
                 goal.range = Service.limitRangeToParentRange(goal.range, parentGoal.range);
                 goal.deadline = Service.deadlineFromRange(rightNow, goal.range);
-
                 const index = plan.goals.findIndex( g => g.id === goal.id);
                 plan.goals.splice(index, 1);
-
                 parentGoal.subgoals.push(goal);
-
             } else if (req.parentGoalId !== undefined && goal.parentGoalId !== undefined) {
 
-                const oldParentGoal = plan.goalsById.get(goal.parentGoalId);
-
-                if (oldParentGoal === undefined) {
-                    throw new CriticalServiceError(`Goal with id ${req.goalId} is supposed to have a parent of id ${goal.parentGoalId}`);
-                } else if (oldParentGoal.isArchived) {
-                    throw new ServiceError(`Cannot move goal ${req.goalId} from under it's archived parent ${goal.parentGoalId}`);
-                }
-
-                const parentGoal = plan.goalsById.get(req.parentGoalId);
-
-                if (parentGoal === undefined) {
-                    throw new ServiceError(`Goal with id ${req.parentGoalId} does not exist`);
-                } else if (parentGoal.isArchived) {
-                    throw new ServiceError(`Goal with id ${req.parentGoalId} is archived`);
-                } else if (parentGoal.isDone) {
-                    throw new ServiceError(`Goal with id ${req.parentGoalId} is done`);
-                }
-
+                const oldParentGoal = Service.getGoalById(plan, goal.parentGoalId, true);
+                const parentGoal = Service.getGoalById(plan, req.parentGoalId);
                 goal.parentGoalId = req.parentGoalId;
                 const index = oldParentGoal.subgoals.findIndex(g => g.id === goal.id);
                 oldParentGoal.subgoals.splice(index, 1);
-
                 goal.parentGoalId = req.parentGoalId;
                 goal.range = Service.limitRangeToParentRange(goal.range, parentGoal.range);
                 goal.deadline = Service.deadlineFromRange(rightNow, goal.range);
-
                 parentGoal.subgoals.push(goal);
             }
 
@@ -224,13 +171,7 @@ export class Service {
         const rightNow = moment.utc();
 
         const newPlanAndSchedule = await this.dbModifyPlanAndSchedule(planAndSchedule => {
-            const goal = planAndSchedule.plan.goalsById.get(req.goalId);
-
-            if (goal === undefined) {
-                throw new ServiceError(`Goal with id ${req.goalId} does not exist for user ${Service.DEFAULT_USER_ID}`);
-            } else if (goal.isArchived) {
-                throw new ServiceError(`Goal with id ${req.goalId} is archived`);
-            }
+            const goal = Service.getGoalById(planAndSchedule.plan, req.goalId, true);
 
             if (req.title !== undefined) {
                 goal.title = req.title;
@@ -255,16 +196,10 @@ export class Service {
     public async markGoalAsDone(req: MarkGoalAsDoneRequest): Promise<MarkGoalAsDoneResponse> {
 
         const newPlanAndSchedule = await this.dbModifyPlanAndSchedule(planAndSchedule => {
-            const goal = planAndSchedule.plan.goalsById.get(req.goalId);
+            const goal = Service.getGoalById(planAndSchedule.plan, req.goalId);
 
-            if (goal === undefined) {
-                throw new ServiceError(`Goal with id ${req.goalId} does not exist for user ${Service.DEFAULT_USER_ID}`);
-            } else if (goal.isArchived) {
-                throw new ServiceError(`Goal with id ${req.goalId} is archived`);
-            } else if (!goal.canBeMarkedAsDone) {
+            if (!goal.canBeMarkedAsDone) {
                 throw new ServiceError(`Goal with id ${req.goalId} cannot be marked as done`);
-            } else if (goal.isDone) {
-                throw new ServiceError(`Goal with id ${req.goalId} is already done`);
             }
 
             goal.isDone = true;
@@ -281,14 +216,10 @@ export class Service {
     public async archiveGoal(req: ArchiveGoalRequest): Promise<ArchiveGoalResponse> {
 
         const newPlanAndSchedule = await this.dbModifyPlanAndSchedule(planAndSchedule => {
-            const goal = planAndSchedule.plan.goalsById.get(req.goalId);
+            const goal = Service.getGoalById(planAndSchedule.plan, req.goalId, false, true);
 
-            if (goal === undefined) {
-                throw new ServiceError(`Goal with id ${req.goalId} does not exist for user ${Service.DEFAULT_USER_ID}`);
-            } else if (!goal.canBeArchived) {
+            if (!goal.canBeArchived) {
                 throw new ServiceError(`Goal with id ${req.goalId} cannot be removed`);
-            } else if (goal.isArchived) {
-                throw new ServiceError(`Goal with id ${req.goalId} is already archived`);
             }
 
             goal.isArchived = true;
@@ -318,28 +249,22 @@ export class Service {
         };
 
         const newPlanAndSchedule = await this.dbModifyPlanAndSchedule(planAndSchedule => {
-            const goal = planAndSchedule.plan.goalsById.get(req.goalId);
-
-            if (goal === undefined) {
-                throw new ServiceError(`Goal with id ${req.goalId} does not exist for user ${Service.DEFAULT_USER_ID}`);
-            } else if (goal.isArchived) {
-                throw new ServiceError(`Goal with id ${req.goalId} cannot have metrics added to it since it is archived`);
-            } else if (goal.isDone) {
-                throw new ServiceError(`Goal with id ${req.goalId} cannot have metrics added to it since it is done`);
-            }
+            const plan = planAndSchedule.plan;
+            const schedule = planAndSchedule.schedule;
+            const goal = Service.getGoalById(plan, req.goalId);
 
             goal.metrics.push(newMetric);
-            planAndSchedule.plan.version.minor++;
-            planAndSchedule.plan.idSerialHack++;
-            newMetric.id = planAndSchedule.plan.idSerialHack;
-            planAndSchedule.plan.metricsById.set(newMetric.id, newMetric);
+            plan.version.minor++;
+            plan.idSerialHack++;
+            newMetric.id = plan.idSerialHack;
+            plan.metricsById.set(newMetric.id, newMetric);
 
-            planAndSchedule.schedule.collectedMetrics.push(newCollectedMetric);
-            planAndSchedule.schedule.version.minor++;
-            planAndSchedule.schedule.idSerialHack++;
-            newCollectedMetric.id = planAndSchedule.schedule.idSerialHack;
+            schedule.collectedMetrics.push(newCollectedMetric);
+            schedule.version.minor++;
+            schedule.idSerialHack++;
+            newCollectedMetric.id = schedule.idSerialHack;
             newCollectedMetric.metricId = newMetric.id;
-            planAndSchedule.schedule.collectedMetricsByMetricId.set(newMetric.id, newCollectedMetric);
+            schedule.collectedMetricsByMetricId.set(newMetric.id, newCollectedMetric);
 
             return [WhatToSave.PLAN_AND_SCHEDULE, planAndSchedule];
         });
@@ -352,19 +277,15 @@ export class Service {
     public async updateMetric(req: UpdateMetricRequest): Promise<UpdateMetricResponse> {
 
         const newPlanAndSchedule = await this.dbModifyPlanAndSchedule(planAndSchedule => {
-            const metric = planAndSchedule.plan.metricsById.get(req.metricId);
+            const plan = planAndSchedule.plan;
+
+            const metric = plan.metricsById.get(req.metricId);
 
             if (metric === undefined) {
                 throw new ServiceError(`Metric with id ${req.metricId} does not exist for user ${Service.DEFAULT_USER_ID}`);
             }
 
-            const goal = planAndSchedule.plan.goalsById.get(metric.goalId);
-
-            if (goal === undefined) {
-                throw new CriticalServiceError(`Goal with id ${metric.goalId} does not exist for metric ${metric.id}`);
-            } else if (goal.isArchived) {
-                throw new ServiceError(`Goal with id ${goal.id} cannot have metrics updated since it is archived`);
-            }
+            Service.getGoalById(plan, metric.goalId, true);
 
             if (req.title !== undefined) {
                 metric.title = req.title;
@@ -404,28 +325,22 @@ export class Service {
         };
 
         const newPlanAndSchedule = await this.dbModifyPlanAndSchedule(planAndSchedule => {
-            const goal = planAndSchedule.plan.goalsById.get(req.goalId);
-
-            if (goal === undefined) {
-                throw new ServiceError(`Goal with id ${req.goalId} does not exist for user ${Service.DEFAULT_USER_ID}`);
-            } else if (goal.isArchived) {
-                throw new ServiceError(`Goal with id ${req.goalId} cannot have tasks added to it since it is archived`);
-            } else if (goal.isDone) {
-                throw new ServiceError(`Goal with id ${req.goalId} cannot have tasks added to it since it is done`);
-            }
+            const plan = planAndSchedule.plan;
+            const schedule = planAndSchedule.schedule;
+            const goal = Service.getGoalById(plan, req.goalId);
 
             goal.tasks.push(newTask);
-            planAndSchedule.plan.version.minor++;
-            planAndSchedule.plan.idSerialHack++;
-            newTask.id = planAndSchedule.plan.idSerialHack;
+            plan.version.minor++;
+            plan.idSerialHack++;
+            newTask.id = plan.idSerialHack;
 
-            planAndSchedule.schedule.scheduledTasks.push(newScheduledTask);
-            planAndSchedule.schedule.version.minor++;
-            planAndSchedule.schedule.idSerialHack++;
-            newScheduledTask.id = planAndSchedule.schedule.idSerialHack;
+            schedule.scheduledTasks.push(newScheduledTask);
+            schedule.version.minor++;
+            schedule.idSerialHack++;
+            newScheduledTask.id = schedule.idSerialHack;
             newScheduledTask.taskId = newTask.id;
-            planAndSchedule.schedule.idSerialHack++;
-            newScheduledTask.entries[0].id = planAndSchedule.schedule.idSerialHack;
+            schedule.idSerialHack++;
+            newScheduledTask.entries[0].id = schedule.idSerialHack;
             newScheduledTask.entries[0].scheduledTaskId = newScheduledTask.id;
 
             return [WhatToSave.PLAN_AND_SCHEDULE, planAndSchedule];
@@ -439,19 +354,14 @@ export class Service {
     public async updateTask(req: UpdateTaskRequest): Promise<UpdateTaskResponse> {
 
         const newPlanAndSchedule = await this.dbModifyPlanAndSchedule(planAndSchedule => {
-            const task = planAndSchedule.plan.tasksById.get(req.taskId);
+            const plan = planAndSchedule.plan;
+            const task = plan.tasksById.get(req.taskId);
 
             if (task === undefined) {
                 throw new ServiceError(`Task with id ${req.taskId} does not exist for user ${Service.DEFAULT_USER_ID}`);
             }
 
-            const goal = planAndSchedule.plan.goalsById.get(task.goalId);
-
-            if (goal === undefined) {
-                throw new CriticalServiceError(`Goal with id ${task.goalId} does not exist for task ${task.id}`);
-            } else if (goal.isArchived) {
-                throw new ServiceError(`Goal with id ${goal.id} cannot have tasks updated since it is archived`);
-            }
+            Service.getGoalById(plan, task.goalId, true);
 
             if (req.title !== undefined) {
                 task.title = req.title;
@@ -518,15 +428,7 @@ export class Service {
                 throw new ServiceError(`Metric with id ${metricId} is not an ${allowedType}`);
             }
 
-            const goal = plan.goalsById.get(metric.goalId);
-
-            if (goal === undefined) {
-                throw new CriticalServiceError(`Goal with id ${metric.goalId} does not exist for user ${Service.DEFAULT_USER_ID} and metric ${metricId}`);
-            } else if (goal.isArchived) {
-                throw new ServiceError(`Goal with id ${goal.id} cannot be operated upon since it is archived`);
-            } else if (goal.isDone) {
-                throw new ServiceError(`Goal with id ${goal.id} cannot be operated upon since it is done`);
-            }
+            Service.getGoalById(plan, metric.goalId);
 
             const collectedMetric = schedule.collectedMetricsByMetricId.get(metricId);
 
@@ -562,15 +464,7 @@ export class Service {
                 throw new ServiceError(`Metric with id ${req.taskId} does not exist for user ${Service.DEFAULT_USER_ID}`);
             }
 
-            const goal = plan.goalsById.get(task.goalId);
-
-            if (goal === undefined) {
-                throw new CriticalServiceError(`Goal with id ${task.goalId} does not exist for user ${Service.DEFAULT_USER_ID}`);
-            } else if (goal.isArchived) {
-                throw new ServiceError(`Goal with id ${goal.id} cannot be operated upon since it is archived`);
-            } else if (goal.isDone) {
-                throw new ServiceError(`Goal with id ${goal.id} cannot be operated upon since it is done`);
-            }
+            Service.getGoalById(plan, task.goalId);
 
             const scheduledTask = schedule.scheduledTasksByTaskId.get(req.taskId);
 
@@ -613,6 +507,8 @@ export class Service {
         const rightNowDay = rightNow.startOf("day");
 
         await this.dbModifyPlanAndSchedule(planAndSchedule => {
+            const plan = planAndSchedule.plan;
+
             let modifiedSomething = false;
 
             for (const task of planAndSchedule.plan.tasksById.values()) {
@@ -626,20 +522,14 @@ export class Service {
                     throw new CriticalServiceError(`Scheduled task for task with id ${task.id} does not exist`);
                 }
 
-                const goal = planAndSchedule.plan.goalsById.get(task.goalId);
-
-                if (goal === undefined) {
-                    throw new CriticalServiceError(`Goal with id ${task.goalId} does not exist for ${task.id}`);
-                } else if (goal.isArchived) {
-                    continue;
-                } else if (goal.isDone) {
-                    continue;
-                }
-
                 const lastEntry = scheduledTask.entries[scheduledTask.entries.length - 1]; // Guaranteed to always exist!
                 const lastEntryRepeatScheduleAt = lastEntry.repeatScheduleAt.startOf("day"); // Should already be here!
 
-                if (goal.deadline && lastEntryRepeatScheduleAt.isSameOrAfter(goal.deadline)) {
+                const goal = Service.getGoalById(plan, task.goalId, true, true);
+
+                if (goal.isArchived || goal.isDone) {
+                    continue;
+                } else if (goal.deadline && lastEntryRepeatScheduleAt.isSameOrAfter(goal.deadline)) {
                     continue;
                 }
 
@@ -859,7 +749,6 @@ export class Service {
         };
     }
 
-
     private static planToDbPlan(plan: Plan): any {
         return {
             version: plan.version,
@@ -1067,6 +956,20 @@ export class Service {
             case GoalRange.MONTH:
                 return parentRange;
         }
+    }
+
+    private static getGoalById(plan: Plan, id: number, allowDone: boolean = false, allowArchived: boolean = false): Goal {
+        const goal = plan.goalsById.get(id);
+
+        if (goal === undefined) {
+            throw new CriticalServiceError(`Goal with id ${id} does not exist for user ${Service.DEFAULT_USER_ID}`);
+        } else if (goal.isArchived && !allowArchived) {
+            throw new ServiceError(`Goal with id ${id} cannot be operated upon since it is archived`);
+        } else if (goal.isDone && !allowDone) {
+            throw new ServiceError(`Goal with id ${id} cannot be operated upon since it is done`);
+        }
+
+        return goal;
     }
 }
 
