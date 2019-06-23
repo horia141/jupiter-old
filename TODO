@@ -2,7 +2,6 @@ Commands to add:
 * Add notion of goal order and commands to shift goals around.
 * Add notion of metric order and commands to shift metrics around
 * Add notion of task order and commands to shift tasks around
-* Set deadline of task (on creation and with command - take into account repeating schedule as well)
 * Add command to change repeating schedule - super tricky!
 * Add command add subtask to a task
 * Command to change title of a subtask
@@ -11,3 +10,5 @@ Commands to add:
 * Add notion of subtask order and commands to shift subtasks around
 * Make inbox uneditable basically!
 * Make move avoid circular paths!
+* Archive tasks
+* Archive subtasks

@@ -1,6 +1,7 @@
 import * as Vorpal from "vorpal";
 import {Args} from "vorpal";
 import * as knex from "knex";
+import * as moment from "moment";
 
 import {Service} from "./service/Service";
 import {
@@ -190,12 +191,14 @@ async function main() {
         .description("Add a new task to a goal")
         .option("-d, --description <desc>", "Add a description to the goal")
         .option("-p, --priority <priority>", "Assigns a priority to the task", getTaskPriority())
+        .option("-d, --deadline <deadlineTime>", "Specifies a deadline in YYYY-MM-DD HH:mm")
         .option("-r, --repeatSchedule <schedule>", "Makes this task repeat according to a schedule", getTaskRepeatSchedule())
         .action(async function (this: Vorpal, args: Args) {
+            const goalId = Number.parseInt(args.goalId);
             const title = args.title.join(" ");
             const description = args.options.description;
             const priority = args.options.priority !== undefined ? (args.options.priority as TaskPriority) : TaskPriority.NORMAL;
-            const goalId = Number.parseInt(args.goalId);
+            const deadline = args.options.deadline !== undefined ? moment.utc(args.options.deadline) : undefined;
             const repeatSchedule = args.options.repeatSchedule;
             if (getTaskPriority().indexOf(priority) === -1) {
                 throw new Error(`Invalid task priority ${priority}`);
@@ -209,6 +212,7 @@ async function main() {
                 title: title,
                 description: description,
                 priority: priority,
+                deadline: deadline,
                 repeatSchedule: repeatSchedule
             };
             const res = await service.createTask(req);
@@ -256,6 +260,21 @@ async function main() {
             const req = {
                 taskId: taskId,
                 priority: priority
+            };
+            const res = await service.updateTask(req);
+            this.log(printPlan(res.plan));
+        });
+
+    vorpal
+        .command("plan:set-task-deadline <taskId> [deadline]")
+        .description("Change the deadline of a given task")
+        .action(async function (this: Vorpal, args: Args) {
+            const taskId = Number.parseInt(args.taskId);
+            const deadline = args.deadline !== undefined ? moment.utc(args.deadline) : undefined;
+
+            const req = {
+                taskId: taskId,
+                deadline: deadline
             };
             const res = await service.updateTask(req);
             this.log(printPlan(res.plan));
@@ -357,7 +376,7 @@ function printGoal(goal: Goal, indent: number = 0): string {
         res.push(`${indentStr}  tasks:`);
 
         for (const task of goal.tasks) {
-            res.push(`${indentStr}    [${task.id}] ${task.title} ${task.priority === TaskPriority.HIGH ? "(high)" : ""}`);
+            res.push(`${indentStr}    [${task.id}] ${task.title} @${task.deadline ? task.deadline.format("YYYY-MM-DD hh:mm UTC") : ""} ${task.priority === TaskPriority.HIGH ? "(high)" : ""}`);
         }
     }
 

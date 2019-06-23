@@ -307,13 +307,17 @@ export class Service {
 
         const rightNow = moment.utc();
 
+        if (req.deadline !== undefined && req.deadline.isSameOrBefore(rightNow)) {
+            throw new ServiceError(`Deadline of ${req.deadline.toISOString()} is before present ${rightNow.toISOString()}`);
+        }
+
         const newTask: Task = {
             id: -1,
             goalId: req.goalId,
             title: req.title,
             description: req.description,
             priority: req.priority,
-            deadline: undefined,
+            deadline: req.deadline,
             repeatSchedule: req.repeatSchedule,
             reminderPolicy: undefined,
             subtasks: [],
@@ -361,6 +365,12 @@ export class Service {
 
     public async updateTask(req: UpdateTaskRequest): Promise<UpdateTaskResponse> {
 
+        const rightNow = moment.utc();
+
+        if (req.deadline !== undefined && req.deadline.isSameOrBefore(rightNow)) {
+            throw new ServiceError(`Deadline of ${req.deadline.toISOString()} is before present ${rightNow.toISOString()}`);
+        }
+
         const newPlanAndSchedule = await this.dbModifyPlanAndSchedule(planAndSchedule => {
             const plan = planAndSchedule.plan;
             const task = plan.tasksById.get(req.taskId);
@@ -379,6 +389,9 @@ export class Service {
             }
             if (req.priority !== undefined) {
                 task.priority = req.priority;
+            }
+            if (req.deadline !== undefined) {
+                task.deadline = req.deadline;
             }
             planAndSchedule.plan.version.minor++;
 
@@ -545,14 +558,18 @@ export class Service {
 
                 if (goal.isArchived || goal.isDone) {
                     continue;
-                } else if (goal.deadline && lastEntryRepeatScheduleAt.isSameOrAfter(goal.deadline)) {
+                } else if (goal.deadline !== undefined && lastEntryRepeatScheduleAt.isSameOrAfter(goal.deadline)) {
+                    continue;
+                } else if (task.deadline !== undefined && lastEntryRepeatScheduleAt.isSameOrAfter(task.deadline)) {
                     continue;
                 }
 
                 for (let date = lastEntryRepeatScheduleAt; date < rightNowDay; date = date.add(1, "day")) {
                     if (!shouldAddRepeatedTaskToScheduleBasedOnDate(date, task.repeatSchedule)) {
                         continue;
-                    } else if (goal.deadline && date.isSameOrAfter(goal.deadline)) {
+                    } else if (goal.deadline !== undefined && date.isSameOrAfter(goal.deadline)) {
+                        continue;
+                    } else if (task.deadline !== undefined && date.isSameOrAfter(task.deadline)) {
                         continue;
                     }
 
@@ -1146,6 +1163,7 @@ export interface CreateTaskRequest {
     title: string;
     description?: string;
     priority: TaskPriority;
+    deadline?: moment.Moment,
     repeatSchedule?: TaskRepeatSchedule;
 }
 
@@ -1158,6 +1176,7 @@ export interface UpdateTaskRequest {
     title?: string;
     description?: string;
     priority?: TaskPriority;
+    deadline?: moment.Moment;
 }
 
 export interface UpdateTaskResponse {
