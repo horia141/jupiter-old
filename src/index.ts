@@ -186,9 +186,11 @@ async function main() {
     vorpal
         .command("plan:new-task <goalId> <title...>")
         .description("Add a new task to a goal")
+        .option("-d, --description <desc>", "Add a description to the goal")
         .option("-r, --repeatSchedule <schedule>", "Makes this task repeat according to a schedule", getTaskRepeatSchedule())
         .action(async function (this: Vorpal, args: Args) {
             const title = args.title.join(" ");
+            const description = args.options.description;
             const goalId = Number.parseInt(args.goalId);
             const repeatSchedule = args.options.repeatSchedule;
             if (repeatSchedule !== undefined && getTaskRepeatSchedule().indexOf(repeatSchedule) === -1) {
@@ -197,6 +199,7 @@ async function main() {
 
             const req = {
                 title: title,
+                description: description,
                 goalId: goalId,
                 repeatSchedule: repeatSchedule
             };
@@ -213,6 +216,20 @@ async function main() {
             const req = {
                 taskId: taskId,
                 title: title
+            };
+            const res = await service.updateTask(req);
+            this.log(printPlan(res.plan));
+        });
+
+    vorpal
+        .command("plan:set-task-description <taskId> <description...>")
+        .description("Change the description of a given task")
+        .action(async function (this: Vorpal, args: Args) {
+            const taskId = Number.parseInt(args.taskId);
+            const description = args.description.join(" ");
+            const req = {
+                taskId: taskId,
+                description: description
             };
             const res = await service.updateTask(req);
             this.log(printPlan(res.plan));
