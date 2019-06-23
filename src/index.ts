@@ -283,6 +283,26 @@ async function main() {
         });
 
     vorpal
+        .command("plan:set-task-schedule <taskId> [repeatSchedule]")
+        .description("Change the repeat schedule for a task")
+        .action(async function (this: Vorpal, args: Args) {
+            const taskId = Number.parseInt(args.taskId);
+            const repeatSchedule = args.repeatSchedule;
+            if (repeatSchedule !== undefined && getTaskRepeatSchedule().indexOf(repeatSchedule) === -1) {
+                throw new Error(`Invalid task repeat schedule ${repeatSchedule}`);
+            }
+            const clearRepeatSchedule = args.repeatSchedule === undefined;
+
+            const req = {
+                taskId: taskId,
+                repeatSchedule: repeatSchedule,
+                clearRepeatSchedule: clearRepeatSchedule
+            };
+            const res = await service.updateTask(req);
+            this.log(printPlan(res.plan));
+        });
+
+    vorpal
         .command("schedule:show")
         .description("Displays the current schedule")
         .action(async function (this: Vorpal) {
@@ -378,7 +398,7 @@ function printGoal(goal: Goal, indent: number = 0): string {
         res.push(`${indentStr}  tasks:`);
 
         for (const task of goal.tasks) {
-            res.push(`${indentStr}    [${task.id}] ${task.title} @${task.deadline ? task.deadline.format("YYYY-MM-DD hh:mm UTC") : ""} ${task.priority === TaskPriority.HIGH ? "(high)" : ""}`);
+            res.push(`${indentStr}    [${task.id}] ${task.title} @${task.deadline ? task.deadline.format("YYYY-MM-DD hh:mm UTC") : ""} ${task.priority === TaskPriority.HIGH ? "(high)" : ""} ${task.repeatSchedule ? task.repeatSchedule : ""}`);
         }
     }
 

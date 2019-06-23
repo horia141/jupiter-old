@@ -2,7 +2,6 @@ Commands to add:
 * Add notion of goal order and commands to shift goals around.
 * Add notion of metric order and commands to shift metrics around
 * Add notion of task order and commands to shift tasks around
-* Add command to change repeating schedule - super tricky!
 * Add command add subtask to a task
 * Command to change title of a subtask
 * Add nesting of subtasks

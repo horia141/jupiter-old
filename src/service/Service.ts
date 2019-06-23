@@ -12,7 +12,7 @@ import {
     MetricType,
     Plan,
     Schedule,
-    ScheduledTask, SubTask,
+    ScheduledTask, ScheduledTaskEntry, SubTask,
     Task,
     TaskPriority,
     TaskRepeatSchedule
@@ -375,8 +375,13 @@ export class Service {
             throw new ServiceError(`Deadline of ${req.deadline.toISOString()} is before present ${rightNow.toISOString()}`);
         }
 
+        if (req.clearRepeatSchedule && req.repeatSchedule !== undefined) {
+            throw new ServiceError(`Cannot specify both a new repeat schedule and try to clear it as well`);
+        }
+
         const newPlanAndSchedule = await this.dbModifyPlanAndSchedule(planAndSchedule => {
             const plan = planAndSchedule.plan;
+            const schedule = planAndSchedule.schedule;
             const task = plan.tasksById.get(req.taskId);
 
             if (task === undefined) {
@@ -398,6 +403,34 @@ export class Service {
                 task.deadline = req.deadline;
             } else if (req.clearDeadline) {
                 task.deadline = undefined;
+            }
+            if (req.repeatSchedule !== undefined) {
+                task.repeatSchedule = req.repeatSchedule;
+
+                // Tricky behaviour here! We look at the last scheduled task entry for this thing. If it's
+                // not today, we add one.
+
+                const scheduledTask = schedule.scheduledTasksByTaskId.get(task.id);
+
+                if (scheduledTask === undefined) {
+                    throw new CriticalServiceError(`Cannot find scheduled task for task with id ${task.id}`);
+                }
+
+                if (!scheduledTask.entries[scheduledTask.entries.length - 1].repeatScheduleAt.isSame(rightNow.startOf("day"))) {
+                    const newScheduledTaskEntry: ScheduledTaskEntry = {
+                        id: -1,
+                        scheduledTaskId: scheduledTask.id,
+                        isDone: false,
+                        repeatScheduleAt: rightNow.startOf("day")
+                    };
+
+                    schedule.version.minor++;
+                    schedule.idSerialHack++;
+                    newScheduledTaskEntry.id = schedule.idSerialHack;
+                    scheduledTask.entries.push(newScheduledTaskEntry);
+                }
+            } else if (req.clearRepeatSchedule) {
+                task.repeatSchedule = undefined;
             }
             planAndSchedule.plan.version.minor++;
 
@@ -1184,6 +1217,8 @@ export interface UpdateTaskRequest {
     priority?: TaskPriority;
     deadline?: moment.Moment;
     clearDeadline?: boolean;
+    repeatSchedule?: TaskRepeatSchedule;
+    clearRepeatSchedule?: boolean;
 }
 
 export interface UpdateTaskResponse {
