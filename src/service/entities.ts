@@ -75,6 +75,10 @@ export enum TaskPriority {
     HIGH = "high"
 }
 
+export function getTaskPriority(): Array<TaskPriority> {
+    return [TaskPriority.NORMAL, TaskPriority.HIGH];
+}
+
 export enum TaskRepeatSchedule {
     YEARLY = "yearly",
     QUARTERLY = "quarterly",

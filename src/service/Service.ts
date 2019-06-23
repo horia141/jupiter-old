@@ -312,7 +312,7 @@ export class Service {
             goalId: req.goalId,
             title: req.title,
             description: req.description,
-            priority: TaskPriority.NORMAL,
+            priority: req.priority,
             deadline: undefined,
             repeatSchedule: req.repeatSchedule,
             reminderPolicy: undefined,
@@ -376,6 +376,9 @@ export class Service {
             }
             if (req.description !== undefined) {
                 task.description = req.description;
+            }
+            if (req.priority !== undefined) {
+                task.priority = req.priority;
             }
             planAndSchedule.plan.version.minor++;
 
@@ -1142,6 +1145,7 @@ export interface CreateTaskRequest {
     goalId: number;
     title: string;
     description?: string;
+    priority: TaskPriority;
     repeatSchedule?: TaskRepeatSchedule;
 }
 
@@ -1153,6 +1157,7 @@ export interface UpdateTaskRequest {
     taskId: number;
     title?: string;
     description?: string;
+    priority?: TaskPriority;
 }
 
 export interface UpdateTaskResponse {

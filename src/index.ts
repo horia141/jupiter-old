@@ -6,13 +6,15 @@ import {Service} from "./service/Service";
 import {
     CollectedMetric,
     getGoalRange,
+    getTaskPriority,
     getTaskRepeatSchedule,
     Goal,
     GoalRange,
     MetricType,
     Plan,
     Schedule,
-    ScheduledTask
+    ScheduledTask,
+    TaskPriority
 } from "./service/entities";
 
 async function main() {
@@ -187,20 +189,26 @@ async function main() {
         .command("plan:new-task <goalId> <title...>")
         .description("Add a new task to a goal")
         .option("-d, --description <desc>", "Add a description to the goal")
+        .option("-p, --priority <priority>", "Assigns a priority to the task", getTaskPriority())
         .option("-r, --repeatSchedule <schedule>", "Makes this task repeat according to a schedule", getTaskRepeatSchedule())
         .action(async function (this: Vorpal, args: Args) {
             const title = args.title.join(" ");
             const description = args.options.description;
+            const priority = args.options.priority !== undefined ? (args.options.priority as TaskPriority) : TaskPriority.NORMAL;
             const goalId = Number.parseInt(args.goalId);
             const repeatSchedule = args.options.repeatSchedule;
+            if (getTaskPriority().indexOf(priority) === -1) {
+                throw new Error(`Invalid task priority ${priority}`);
+            }
             if (repeatSchedule !== undefined && getTaskRepeatSchedule().indexOf(repeatSchedule) === -1) {
                 throw new Error(`Invalid task repeat schedule ${repeatSchedule}`);
             }
 
             const req = {
+                goalId: goalId,
                 title: title,
                 description: description,
-                goalId: goalId,
+                priority: priority,
                 repeatSchedule: repeatSchedule
             };
             const res = await service.createTask(req);
@@ -230,6 +238,24 @@ async function main() {
             const req = {
                 taskId: taskId,
                 description: description
+            };
+            const res = await service.updateTask(req);
+            this.log(printPlan(res.plan));
+        });
+
+    vorpal
+        .command("plan:set-task-priority <taskId> <priority>")
+        .description("Change the priority of a given task")
+        .action(async function (this: Vorpal, args: Args) {
+            const taskId = Number.parseInt(args.taskId);
+            const priority = args.priority as TaskPriority;
+            if (getTaskPriority().indexOf(priority) === -1) {
+                throw new Error(`Invalid task priority ${priority}`);
+            }
+
+            const req = {
+                taskId: taskId,
+                priority: priority
             };
             const res = await service.updateTask(req);
             this.log(printPlan(res.plan));
@@ -331,7 +357,7 @@ function printGoal(goal: Goal, indent: number = 0): string {
         res.push(`${indentStr}  tasks:`);
 
         for (const task of goal.tasks) {
-            res.push(`${indentStr}    [${task.id}] ${task.title}`);
+            res.push(`${indentStr}    [${task.id}] ${task.title} ${task.priority === TaskPriority.HIGH ? "(high)" : ""}`);
         }
     }
 
