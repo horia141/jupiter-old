@@ -271,10 +271,12 @@ async function main() {
         .action(async function (this: Vorpal, args: Args) {
             const taskId = Number.parseInt(args.taskId);
             const deadline = args.deadline !== undefined ? moment.utc(args.deadline) : undefined;
+            const clearDeadline = args.deadline === undefined;
 
             const req = {
                 taskId: taskId,
-                deadline: deadline
+                deadline: deadline,
+                clearDeadline: clearDeadline
             };
             const res = await service.updateTask(req);
             this.log(printPlan(res.plan));

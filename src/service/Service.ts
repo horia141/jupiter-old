@@ -367,6 +367,10 @@ export class Service {
 
         const rightNow = moment.utc();
 
+        if (req.clearDeadline && req.deadline !== undefined) {
+            throw new ServiceError(`Cannot specify both a new deadline and try to clear it as well`);
+        }
+
         if (req.deadline !== undefined && req.deadline.isSameOrBefore(rightNow)) {
             throw new ServiceError(`Deadline of ${req.deadline.toISOString()} is before present ${rightNow.toISOString()}`);
         }
@@ -392,6 +396,8 @@ export class Service {
             }
             if (req.deadline !== undefined) {
                 task.deadline = req.deadline;
+            } else if (req.clearDeadline) {
+                task.deadline = undefined;
             }
             planAndSchedule.plan.version.minor++;
 
@@ -1177,6 +1183,7 @@ export interface UpdateTaskRequest {
     description?: string;
     priority?: TaskPriority;
     deadline?: moment.Moment;
+    clearDeadline?: boolean;
 }
 
 export interface UpdateTaskResponse {
