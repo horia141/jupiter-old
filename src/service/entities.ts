@@ -18,6 +18,7 @@ export interface Plan {
 export interface Goal {
     id: number;
     parentGoalId?: number;
+    isSystemGoal: boolean;
     title: string;
     description?: string;
     range: GoalRange;
@@ -26,9 +27,7 @@ export interface Goal {
     metrics: Metric[];
     tasks: Task[];
     boards: Board[];
-    canBeMarkedAsDone: boolean;
     isDone: boolean;
-    canBeArchived: boolean;
     isArchived: boolean;
 }
 

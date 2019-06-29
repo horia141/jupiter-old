@@ -81,6 +81,7 @@ export class Service {
         const newGoal: Goal = {
             id: -1,
             parentGoalId: req.parentGoalId,
+            isSystemGoal: false,
             title: req.title,
             description: req.description,
             range: req.range,
@@ -89,9 +90,7 @@ export class Service {
             metrics: [],
             tasks: [],
             boards: [],
-            canBeMarkedAsDone: true,
             isDone: false,
-            canBeArchived: true,
             isArchived: false
         };
 
@@ -127,6 +126,10 @@ export class Service {
         const newPlanAndSchedule = await this.dbModifyPlanAndSchedule(planAndSchedule => {
             const plan = planAndSchedule.plan;
             const goal = Service.getGoalById(plan, req.goalId, true);
+
+            if (goal.isSystemGoal) {
+                throw new ServiceError(`Cannot move system goal with id ${goal.id}`);
+            }
 
             if (req.parentGoalId === undefined && goal.parentGoalId === undefined) {
                 // Nothing to do here - goal is already at toplevel.
@@ -176,6 +179,10 @@ export class Service {
         const newPlanAndSchedule = await this.dbModifyPlanAndSchedule(planAndSchedule => {
             const goal = Service.getGoalById(planAndSchedule.plan, req.goalId, true);
 
+            if (goal.isSystemGoal) {
+                throw new ServiceError(`Cannot update system goal with id ${goal.id}`);
+            }
+
             if (req.title !== undefined) {
                 goal.title = req.title;
             }
@@ -201,8 +208,8 @@ export class Service {
         const newPlanAndSchedule = await this.dbModifyPlanAndSchedule(planAndSchedule => {
             const goal = Service.getGoalById(planAndSchedule.plan, req.goalId);
 
-            if (!goal.canBeMarkedAsDone) {
-                throw new ServiceError(`Goal with id ${req.goalId} cannot be marked as done`);
+            if (goal.isSystemGoal) {
+                throw new ServiceError(`Cannot mark system goal as done with id ${goal.id}`);
             }
 
             goal.isDone = true;
@@ -221,8 +228,8 @@ export class Service {
         const newPlanAndSchedule = await this.dbModifyPlanAndSchedule(planAndSchedule => {
             const goal = Service.getGoalById(planAndSchedule.plan, req.goalId, false, true);
 
-            if (!goal.canBeArchived) {
-                throw new ServiceError(`Goal with id ${req.goalId} cannot be removed`);
+            if (goal.isSystemGoal) {
+                throw new ServiceError(`Cannot archive system goal with id ${goal.id}`);
             }
 
             goal.isArchived = true;
@@ -808,6 +815,7 @@ export class Service {
         return {
             id: goalRow.id,
             parentGoalId: goalRow.parentGoalId,
+            isSystemGoal: goalRow.isSystemGoal,
             title: goalRow.title,
             description: goalRow.description,
             range: goalRow.range,
@@ -816,9 +824,7 @@ export class Service {
             metrics: goalRow.metrics.map((m: any) => Service.dbMetricToMetric(m)),
             tasks: goalRow.tasks.map((t: any) => Service.dbTaskToTask(t)),
             boards: goalRow.boards.map((b: any) => Service.dbBoardToBoard(b)),
-            canBeMarkedAsDone: goalRow.canBeMarkedAsDone,
             isDone: goalRow.isDone,
-            canBeArchived: goalRow.canBeArchived,
             isArchived: goalRow.isArchived
         };
     }
@@ -875,6 +881,7 @@ export class Service {
         return {
             id: goal.id,
             parentGoalId: goal.parentGoalId,
+            isSystemGoal: goal.isSystemGoal,
             title: goal.title,
             description: goal.description,
             range: goal.range,
@@ -883,9 +890,7 @@ export class Service {
             metrics: goal.metrics.map(m => Service.metricToDbMetric(m)),
             tasks: goal.tasks.map(t => Service.taskToDbTask(t)),
             boards: goal.boards.map(b => Service.boardToDbBoard(b)),
-            canBeMarkedAsDone: goal.canBeMarkedAsDone,
             isDone: goal.isDone,
-            canBeArchived: goal.canBeArchived,
             isArchived: goal.isArchived
         };
     }
@@ -1027,15 +1032,14 @@ export class Service {
                 goals: [{
                     id: 1,
                     title: "Inbox",
+                    isSystemGoal: true,
                     description: "Stuff you're working on outside of any big project",
                     range: GoalRange.LIFETIME,
                     subgoals: [],
                     metrics: [],
                     tasks: [],
                     boards: [],
-                    canBeMarkedAsDone: false,
                     isDone: false,
-                    canBeArchived: false,
                     isArchived: false
                 }],
                 idSerialHack: 1,
