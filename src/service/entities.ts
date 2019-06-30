@@ -47,6 +47,7 @@ export interface Metric {
     id: number;
     goalId: number;
     title: string;
+    description?: string;
     type: MetricType;
 }
 

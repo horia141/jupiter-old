@@ -249,6 +249,7 @@ export class Service {
             id: -1,
             goalId: req.goalId,
             title: req.title,
+            description: req.description,
             type: req.isCounter ? MetricType.COUNTER : MetricType.GAUGE
         };
 
@@ -299,6 +300,9 @@ export class Service {
 
             if (req.title !== undefined) {
                 metric.title = req.title;
+            }
+            if (req.description !== undefined) {
+                metric.description = req.description;
             }
             planAndSchedule.plan.version.minor++;
 
@@ -832,8 +836,9 @@ export class Service {
     private static dbMetricToMetric(metricRow: any): Metric {
         return {
             id: metricRow.id,
-            goalId: metricRow.goalid,
+            goalId: metricRow.goalId,
             title: metricRow.title,
+            description: metricRow.description,
             type: metricRow.type
         };
     }
@@ -900,6 +905,7 @@ export class Service {
             id: metric.id,
             goalId: metric.goalId,
             title: metric.title,
+            description: metric.description,
             type: metric.type
         };
     }
@@ -1185,6 +1191,7 @@ export interface ArchiveGoalResponse {
 export interface CreateMetricRequest {
     goalId: number;
     title: string;
+    description?: string;
     isCounter: boolean;
 }
 
@@ -1195,6 +1202,7 @@ export interface CreateMetricResponse {
 export interface UpdateMetricRequest {
     metricId: number;
     title?: string;
+    description?: string;
 }
 
 export interface UpdateMetricResponse {

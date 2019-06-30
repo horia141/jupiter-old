@@ -158,13 +158,16 @@ async function main() {
     vorpal
         .command("plan:new-metric <goalId> <title...>")
         .description("Adds a new metric to a goal")
+        .option("-d, --description <desc>", "Add a description to the goal")
         .option("--counter", "Create a counter metric instead of a gauge one")
         .action(async function (this: Vorpal, args: Args) {
             const title = args.title.join(" ");
+            const description = args.options.description;
             const goalId = Number.parseInt(args.goalId);
             const isCounter = args.options.counter !== undefined;
             const req = {
                 title: title,
+                description: description,
                 goalId: goalId,
                 isCounter: isCounter
             };
@@ -181,6 +184,20 @@ async function main() {
             const req = {
                 metricId: metricId,
                 title: title
+            };
+            const res = await service.updateMetric(req);
+            this.log(printPlan(res.plan));
+        });
+
+    vorpal
+        .command("plan:set-metric-description <metricId> <description...>")
+        .description("Change the title of a given metric")
+        .action(async function (this: Vorpal, args: Args) {
+            const metricId = Number.parseInt(args.metricId);
+            const description = args.description.join(" ");
+            const req = {
+                metricId: metricId,
+                description: description
             };
             const res = await service.updateMetric(req);
             this.log(printPlan(res.plan));
