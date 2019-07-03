@@ -204,6 +204,19 @@ async function main() {
         });
 
     vorpal
+        .command("plan:archive-metric <metricId>")
+        .description("Archive a given metric")
+        .action(async function (this: Vorpal, args: Args) {
+            const metricId = Number.parseInt(args.metricId);
+
+            const req = {
+                metricId: metricId
+            };
+            const res = await service.archiveMetric(req);
+            this.log(printPlan(res.plan));
+        });
+
+    vorpal
         .command("plan:new-task <goalId> <title...>")
         .description("Add a new task to a goal")
         .option("-d, --description <desc>", "Add a description to the goal")
@@ -418,11 +431,15 @@ function printGoal(goal: Goal, indent: number = 0): string {
         }
     }
 
-    if (goal.metrics.length > 0) {
+    if (goal.metrics.filter(m => !m.isArchived).length > 0) {
 
         res.push(`${indentStr}  metrics:`);
 
         for (const metric of goal.metrics) {
+            if (metric.isArchived) {
+                continue;
+            }
+
             res.push(`${indentStr}    [${metric.id}] ${metric.type === MetricType.GAUGE ? 'g' : 'c'} ${metric.title}`);
         }
     }

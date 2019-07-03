@@ -250,7 +250,8 @@ export class Service {
             goalId: req.goalId,
             title: req.title,
             description: req.description,
-            type: req.isCounter ? MetricType.COUNTER : MetricType.GAUGE
+            type: req.isCounter ? MetricType.COUNTER : MetricType.GAUGE,
+            isArchived: false
         };
 
         const newCollectedMetric: CollectedMetric = {
@@ -289,12 +290,7 @@ export class Service {
 
         const newPlanAndSchedule = await this.dbModifyPlanAndSchedule(planAndSchedule => {
             const plan = planAndSchedule.plan;
-
-            const metric = plan.metricsById.get(req.metricId);
-
-            if (metric === undefined) {
-                throw new ServiceError(`Metric with id ${req.metricId} does not exist for user ${Service.DEFAULT_USER_ID}`);
-            }
+            const metric = Service.getMetricById(plan, req.metricId);
 
             Service.getGoalById(plan, metric.goalId, true);
 
@@ -304,6 +300,25 @@ export class Service {
             if (req.description !== undefined) {
                 metric.description = req.description;
             }
+            planAndSchedule.plan.version.minor++;
+
+            return [WhatToSave.PLAN_AND_SCHEDULE, planAndSchedule];
+        });
+
+        return {
+            plan: newPlanAndSchedule.plan
+        };
+    }
+
+    public async archiveMetric(req: ArchiveMetricRequest): Promise<ArchiveMetricResponse> {
+
+        const newPlanAndSchedule = await this.dbModifyPlanAndSchedule(planAndSchedule => {
+            const plan = planAndSchedule.plan;
+            const metric = Service.getMetricById(plan, req.metricId);
+
+            Service.getGoalById(plan, metric.goalId, true);
+
+            metric.isArchived = true;
             planAndSchedule.plan.version.minor++;
 
             return [WhatToSave.PLAN_AND_SCHEDULE, planAndSchedule];
@@ -456,6 +471,8 @@ export class Service {
             const plan = planAndSchedule.plan;
             const task = Service.getTaskById(plan, req.taskId);
 
+            Service.getGoalById(plan, task.goalId, true);
+
             task.isArchived = true;
             planAndSchedule.plan.version.minor++;
 
@@ -511,11 +528,7 @@ export class Service {
             const plan = planAndSchedule.plan;
             const schedule = planAndSchedule.schedule;
 
-            const metric = plan.metricsById.get(metricId);
-
-            if (metric === undefined) {
-                throw new ServiceError(`Metric with id ${metricId} does not exist for user ${Service.DEFAULT_USER_ID}`);
-            }
+            const metric = Service.getMetricById(plan, metricId);
 
             if (metric.type !== allowedType) {
                 throw new ServiceError(`Metric with id ${metricId} is not an ${allowedType}`);
@@ -848,7 +861,8 @@ export class Service {
             goalId: metricRow.goalId,
             title: metricRow.title,
             description: metricRow.description,
-            type: metricRow.type
+            type: metricRow.type,
+            isArchived: metricRow.isArchived
         };
     }
 
@@ -916,7 +930,8 @@ export class Service {
             goalId: metric.goalId,
             title: metric.title,
             description: metric.description,
-            type: metric.type
+            type: metric.type,
+            isArchived: metric.isArchived
         };
     }
 
@@ -1147,6 +1162,18 @@ export class Service {
         return goal;
     }
 
+    private static getMetricById(plan: Plan, id: number, allowArchived: boolean = false): Metric {
+        const metric = plan.metricsById.get(id);
+
+        if (metric === undefined) {
+            throw new CriticalServiceError(`Metric with ${id} does not exist`);
+        } else if (metric.isArchived && !allowArchived) {
+            throw new ServiceError(`Metric with id ${id} cannot be operated upon since it is archived`);
+        }
+
+        return metric;
+    }
+
     private static getTaskById(plan: Plan, id: number, allowArchived: boolean = false): Task {
         const task = plan.tasksById.get(id);
 
@@ -1229,6 +1256,14 @@ export interface UpdateMetricRequest {
 }
 
 export interface UpdateMetricResponse {
+    plan: Plan;
+}
+
+export interface ArchiveMetricRequest {
+    metricId: number;
+}
+
+export interface ArchiveMetricResponse {
     plan: Plan;
 }
 

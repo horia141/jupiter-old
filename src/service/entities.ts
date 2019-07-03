@@ -49,6 +49,7 @@ export interface Metric {
     title: string;
     description?: string;
     type: MetricType;
+    isArchived: boolean;
 }
 
 export enum MetricType {
