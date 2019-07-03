@@ -1,23 +1,36 @@
 import * as moment from "moment";
 
+export type UserId = number;
+export type PlanId = number;
+export type GoalId = number;
+export type MetricId = number;
+export type TaskId = number;
+export type SubTaskId = number;
+export type BoardId = number;
+export type ScheduleId = number;
+export type CollectedMetricId = number;
+export type CollectedMetricEntryId = number;
+export type ScheduledTaskId = number;
+export type ScheduledTaskEntryId = number;
+
 export interface Version {
     major: number;
     minor: number;
 }
 
 export interface Plan {
-    id: number;
+    id: PlanId;
     version: Version;
     goals: Goal[];
     idSerialHack: number;
-    goalsById: Map<number, Goal>;
-    metricsById: Map<number, Metric>;
-    tasksById: Map<number, Task>;
+    goalsById: Map<GoalId, Goal>;
+    metricsById: Map<MetricId, Metric>;
+    tasksById: Map<TaskId, Task>;
 }
 
 export interface Goal {
-    id: number;
-    parentGoalId?: number;
+    id: GoalId;
+    parentGoalId?: GoalId;
     isSystemGoal: boolean;
     title: string;
     description?: string;
@@ -44,8 +57,8 @@ export function getGoalRange(): Array<GoalRange> {
 }
 
 export interface Metric {
-    id: number;
-    goalId: number;
+    id: MetricId;
+    goalId: GoalId;
     title: string;
     description?: string;
     type: MetricType;
@@ -58,8 +71,8 @@ export enum MetricType {
 }
 
 export interface Task {
-    id: number;
-    goalId: number;
+    id: TaskId;
+    goalId: GoalId;
     title: string;
     description?: string;
     priority: TaskPriority;
@@ -94,48 +107,48 @@ export function getTaskRepeatSchedule(): Array<TaskRepeatSchedule> {
 }
 
 export interface SubTask {
-    id: number;
+    id: SubTaskId;
     title: string;
     subtasks: SubTask[];
 }
 
 export interface Board {
-    id: number;
+    id: BoardId;
     title: string;
 }
 
 export interface Schedule {
-    id: number;
+    id: ScheduleId;
     version: Version;
     collectedMetrics: CollectedMetric[];
     scheduledTasks: ScheduledTask[];
     idSerialHack: number;
-    collectedMetricsByMetricId: Map<number, CollectedMetric>;
-    scheduledTasksByTaskId: Map<number, ScheduledTask>;
+    collectedMetricsByMetricId: Map<MetricId, CollectedMetric>;
+    scheduledTasksByTaskId: Map<TaskId, ScheduledTask>;
 }
 
 export interface CollectedMetric {
-    id: number;
-    metricId: number;
+    id: CollectedMetricId;
+    metricId: MetricId;
     entries: CollectedMetricEntry[];
 }
 
 export interface CollectedMetricEntry {
-    id: number;
-    collectedMetricId: number;
+    id: CollectedMetricEntryId;
+    collectedMetricId: CollectedMetricId;
     timestamp: moment.Moment;
     value: number;
 }
 
 export interface ScheduledTask {
-    id: number;
-    taskId: number;
+    id: ScheduledTaskId;
+    taskId: TaskId;
     entries: ScheduledTaskEntry[];
 }
 
 export interface ScheduledTaskEntry {
-    id: number;
-    scheduledTaskId: number;
+    id: ScheduledTaskEntryId;
+    scheduledTaskId: ScheduledTaskId;
     isDone: boolean;
     repeatScheduleAt: moment.Moment;
 }

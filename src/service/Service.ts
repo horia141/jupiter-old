@@ -6,16 +6,16 @@ import {
     Board,
     CollectedMetric,
     CollectedMetricEntry,
-    Goal,
+    Goal, GoalId,
     GoalRange,
-    Metric,
+    Metric, MetricId,
     MetricType,
-    Plan,
+    Plan, PlanId,
     Schedule,
     ScheduledTask, ScheduledTaskEntry, SubTask,
-    Task,
+    Task, TaskId,
     TaskPriority,
-    TaskRepeatSchedule
+    TaskRepeatSchedule, UserId
 } from "./entities";
 
 export class ServiceError extends Error {
@@ -523,7 +523,7 @@ export class Service {
         return await this.handleMetric(req.metricId, newCollectedMetricEntry, MetricType.GAUGE);
     }
 
-    private async handleMetric(metricId: number, entry: CollectedMetricEntry, allowedType: MetricType): Promise<RecordForMetricResponse | IncrementMetricResponse> {
+    private async handleMetric(metricId: MetricId, entry: CollectedMetricEntry, allowedType: MetricType): Promise<RecordForMetricResponse | IncrementMetricResponse> {
         const newPlanAndSchedule = await this.dbModifyPlanAndSchedule(planAndSchedule => {
             const plan = planAndSchedule.plan;
             const schedule = planAndSchedule.schedule;
@@ -730,7 +730,7 @@ export class Service {
         });
     }
 
-    private async dbGetLatestPlan(conn: knex, userId: number): Promise<Plan> {
+    private async dbGetLatestPlan(conn: knex, userId: UserId): Promise<Plan> {
         const planRows = await conn
             .from(Service.PLAN_TABLE)
             .select(Service.PLAN_FIELDS)
@@ -746,7 +746,7 @@ export class Service {
         return Service.dbPlanToPlan(planRows[0]);
     }
 
-    private async dbSavePlan(conn: knex, userId: number, plan: Plan): Promise<Plan> {
+    private async dbSavePlan(conn: knex, userId: UserId, plan: Plan): Promise<Plan> {
         const planRows = await conn
             .from(Service.PLAN_TABLE)
             .returning(Service.PLAN_FIELDS)
@@ -764,7 +764,7 @@ export class Service {
         return Service.dbPlanToPlan(planRows[0]);
     }
 
-    private async dbGetLatestSchedule(conn: knex, userId: number, planId: number): Promise<Schedule> {
+    private async dbGetLatestSchedule(conn: knex, userId: UserId, planId: PlanId): Promise<Schedule> {
         const scheduleRows = await conn
             .from(Service.SCHEDULE_TABLE)
             .select(Service.SCHEDULE_FIELDS)
@@ -781,7 +781,7 @@ export class Service {
         return Service.dbScheduleToSchedule(scheduleRows[0]);
     }
 
-    private async dbSaveSchedule(conn: knex, userId: number, planId: number, schedule: Schedule): Promise<Schedule> {
+    private async dbSaveSchedule(conn: knex, userId: UserId, planId: PlanId, schedule: Schedule): Promise<Schedule> {
         const scheduleRows = await conn
             .from(Service.SCHEDULE_TABLE)
             .returning(Service.SCHEDULE_FIELDS)
@@ -1148,7 +1148,7 @@ export class Service {
         }
     }
 
-    private static getGoalById(plan: Plan, id: number, allowDone: boolean = false, allowArchived: boolean = false): Goal {
+    private static getGoalById(plan: Plan, id: GoalId, allowDone: boolean = false, allowArchived: boolean = false): Goal {
         const goal = plan.goalsById.get(id);
 
         if (goal === undefined) {
@@ -1162,7 +1162,7 @@ export class Service {
         return goal;
     }
 
-    private static getMetricById(plan: Plan, id: number, allowArchived: boolean = false): Metric {
+    private static getMetricById(plan: Plan, id: MetricId, allowArchived: boolean = false): Metric {
         const metric = plan.metricsById.get(id);
 
         if (metric === undefined) {
@@ -1174,7 +1174,7 @@ export class Service {
         return metric;
     }
 
-    private static getTaskById(plan: Plan, id: number, allowArchived: boolean = false): Task {
+    private static getTaskById(plan: Plan, id: TaskId, allowArchived: boolean = false): Task {
         const task = plan.tasksById.get(id);
 
         if (task === undefined) {
@@ -1203,8 +1203,8 @@ export interface CreateGoalResponse {
 }
 
 export interface MoveGoalRequest {
-    goalId: number;
-    parentGoalId?: number;
+    goalId: GoalId;
+    parentGoalId?: GoalId;
 }
 
 export interface MoveGoalResponse {
@@ -1212,7 +1212,7 @@ export interface MoveGoalResponse {
 }
 
 export interface UpdateGoalRequest {
-    goalId: number;
+    goalId: GoalId;
     title?: string;
     description?: string;
     range?: GoalRange;
@@ -1223,7 +1223,7 @@ export interface UpdateGoalResponse {
 }
 
 export interface MarkGoalAsDoneRequest {
-    goalId: number;
+    goalId: GoalId;
 }
 
 export interface MarkGoalAsDoneResponse {
@@ -1231,7 +1231,7 @@ export interface MarkGoalAsDoneResponse {
 }
 
 export interface ArchiveGoalRequest {
-    goalId: number;
+    goalId: GoalId;
 }
 
 export interface ArchiveGoalResponse {
@@ -1239,7 +1239,7 @@ export interface ArchiveGoalResponse {
 }
 
 export interface CreateMetricRequest {
-    goalId: number;
+    goalId: GoalId;
     title: string;
     description?: string;
     isCounter: boolean;
@@ -1250,7 +1250,7 @@ export interface CreateMetricResponse {
 }
 
 export interface UpdateMetricRequest {
-    metricId: number;
+    metricId: MetricId;
     title?: string;
     description?: string;
 }
@@ -1260,7 +1260,7 @@ export interface UpdateMetricResponse {
 }
 
 export interface ArchiveMetricRequest {
-    metricId: number;
+    metricId: MetricId;
 }
 
 export interface ArchiveMetricResponse {
@@ -1268,7 +1268,7 @@ export interface ArchiveMetricResponse {
 }
 
 export interface CreateTaskRequest {
-    goalId: number;
+    goalId: GoalId;
     title: string;
     description?: string;
     priority: TaskPriority;
@@ -1281,7 +1281,7 @@ export interface CreateTaskResponse {
 }
 
 export interface UpdateTaskRequest {
-    taskId: number;
+    taskId: TaskId;
     title?: string;
     description?: string;
     priority?: TaskPriority;
@@ -1296,7 +1296,7 @@ export interface UpdateTaskResponse {
 }
 
 export interface ArchiveTaskRequest {
-    taskId: number;
+    taskId: TaskId;
 }
 
 export interface ArchiveTaskResponse {
@@ -1309,7 +1309,7 @@ export interface GetLatestScheduleResponse {
 }
 
 export interface IncrementMetricRequest {
-    metricId: number;
+    metricId: MetricId;
 }
 
 export interface IncrementMetricResponse {
@@ -1318,7 +1318,7 @@ export interface IncrementMetricResponse {
 }
 
 export interface RecordForMetricRequest {
-    metricId: number;
+    metricId: MetricId;
     value: number;
 }
 
@@ -1328,7 +1328,7 @@ export interface RecordForMetricResponse {
 }
 
 export interface MarkTaskAsDoneRequest {
-    taskId: number;
+    taskId: TaskId;
 }
 
 export interface MarkTaskAsDoneResponse {
