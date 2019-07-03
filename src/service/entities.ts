@@ -68,6 +68,7 @@ export interface Task {
     subtasks: SubTask[];
     donePolicy?: any;
     inProgress: boolean;
+    isArchived: boolean;
 }
 
 export enum TaskPriority {

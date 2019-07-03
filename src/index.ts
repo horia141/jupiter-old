@@ -320,6 +320,19 @@ async function main() {
         });
 
     vorpal
+        .command("plan:archive-task <taskId>")
+        .description("Archive a given task")
+        .action(async function (this: Vorpal, args: Args) {
+            const taskId = Number.parseInt(args.taskId);
+
+            const req = {
+                taskId: taskId
+            };
+            const res = await service.archiveTask(req);
+            this.log(printPlan(res.plan));
+        });
+
+    vorpal
         .command("schedule:show")
         .description("Displays the current schedule")
         .action(async function (this: Vorpal) {
@@ -393,10 +406,14 @@ function printGoal(goal: Goal, indent: number = 0): string {
 
     res.push(`${indentStr}[${goal.id}] ${goal.title} (${goal.range}@${goal.deadline ? goal.deadline.format("YYYY-MM-DD hh:mm UTC") : ""}):`);
 
-    if (goal.subgoals.length > 0) {
+    if (goal.subgoals.filter(g => !(g.isArchived || g.isDone)).length > 0) {
         res.push(`${indentStr}  subgoals:`);
 
         for (const subGoal of goal.subgoals) {
+            if (subGoal.isArchived || subGoal.isDone) {
+                continue;
+            }
+
             res.push(printGoal(subGoal, indent + 2));
         }
     }
@@ -410,11 +427,15 @@ function printGoal(goal: Goal, indent: number = 0): string {
         }
     }
 
-    if (goal.tasks.length > 0) {
+    if (goal.tasks.filter(t => !t.isArchived).length > 0) {
 
         res.push(`${indentStr}  tasks:`);
 
         for (const task of goal.tasks) {
+            if (task.isArchived) {
+                continue;
+            }
+
             res.push(`${indentStr}    [${task.id}] ${task.title} @${task.deadline ? task.deadline.format("YYYY-MM-DD hh:mm UTC") : ""} ${task.priority === TaskPriority.HIGH ? "(high)" : ""} ${task.repeatSchedule ? task.repeatSchedule : ""}`);
         }
     }

@@ -333,7 +333,8 @@ export class Service {
             reminderPolicy: undefined,
             subtasks: [],
             donePolicy: undefined,
-            inProgress: false
+            inProgress: false,
+            isArchived: false
         };
 
         const newScheduledTask: ScheduledTask = {
@@ -393,11 +394,7 @@ export class Service {
         const newPlanAndSchedule = await this.dbModifyPlanAndSchedule(planAndSchedule => {
             const plan = planAndSchedule.plan;
             const schedule = planAndSchedule.schedule;
-            const task = plan.tasksById.get(req.taskId);
-
-            if (task === undefined) {
-                throw new ServiceError(`Task with id ${req.taskId} does not exist for user ${Service.DEFAULT_USER_ID}`);
-            }
+            const task = Service.getTaskById(plan, req.taskId);
 
             Service.getGoalById(plan, task.goalId, true);
 
@@ -446,6 +443,23 @@ export class Service {
             planAndSchedule.plan.version.minor++;
 
             return [WhatToSave.PLAN_AND_SCHEDULE, planAndSchedule];
+        });
+
+        return {
+            plan: newPlanAndSchedule.plan
+        };
+    }
+
+    public async archiveTask(req: ArchiveTaskRequest): Promise<ArchiveTaskResponse> {
+
+        const newPlanAndSchedule = await this.dbModifyPlanAndSchedule(planAndSchedule => {
+            const plan = planAndSchedule.plan;
+            const task = Service.getTaskById(plan, req.taskId);
+
+            task.isArchived = true;
+            planAndSchedule.plan.version.minor++;
+
+            return [WhatToSave.PLAN_AND_SCHEDULE, planAndSchedule]
         });
 
         return {
@@ -537,12 +551,7 @@ export class Service {
             const plan = planAndSchedule.plan;
             const schedule = planAndSchedule.schedule;
 
-            const task = plan.tasksById.get(req.taskId);
-
-            if (task === undefined) {
-                throw new ServiceError(`Metric with id ${req.taskId} does not exist for user ${Service.DEFAULT_USER_ID}`);
-            }
-
+            const task = Service.getTaskById(plan, req.taskId);
             Service.getGoalById(plan, task.goalId);
 
             const scheduledTask = schedule.scheduledTasksByTaskId.get(req.taskId);
@@ -855,7 +864,8 @@ export class Service {
             reminderPolicy: taskRow.reminderPolicy,
             subtasks: taskRow.subtasks.map((st: any) => Service.dbSubTaskToSubTask(st)),
             donePolicy: taskRow.donePolicy,
-            inProgress: taskRow.inProgress
+            inProgress: taskRow.inProgress,
+            isArchived: taskRow.isArchived
         };
     }
 
@@ -922,7 +932,8 @@ export class Service {
             reminderPolicy: task.reminderPolicy,
             subtasks: task.subtasks.map(st => Service.subTaskToDbSubTask(st)),
             donePolicy: task.donePolicy,
-            inProgress: task.inProgress
+            inProgress: task.inProgress,
+            isArchived: task.isArchived
         };
     }
 
@@ -1135,6 +1146,18 @@ export class Service {
 
         return goal;
     }
+
+    private static getTaskById(plan: Plan, id: number, allowArchived: boolean = false): Task {
+        const task = plan.tasksById.get(id);
+
+        if (task === undefined) {
+            throw new CriticalServiceError(`Task with id ${id} does not exist`);
+        } else if (task.isArchived && !allowArchived) {
+            throw new ServiceError(`Task with id ${id} cannot be operated upon since it is archived`);
+        }
+
+        return task;
+    }
 }
 
 export interface GetLatestPlanResponse {
@@ -1234,6 +1257,14 @@ export interface UpdateTaskRequest {
 }
 
 export interface UpdateTaskResponse {
+    plan: Plan;
+}
+
+export interface ArchiveTaskRequest {
+    taskId: number;
+}
+
+export interface ArchiveTaskResponse {
     plan: Plan;
 }
 

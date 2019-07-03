@@ -9,5 +9,4 @@ Commands to add:
 * Add notion of subtask order and commands to shift subtasks around
 * Make move avoid circular paths!
 * Archive metrics
-* Archive tasks
 * Archive subtasks
