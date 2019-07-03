@@ -401,11 +401,8 @@ function printPlan(plan: Plan): string {
 
     res.push(`id=${plan.id}`);
 
-    for (const goal of plan.goals) {
-        if (goal.isArchived || goal.isDone) {
-            continue;
-        }
-
+    for (const goalId of plan.goalsOrder) {
+        const goal = plan.goalsById.get(goalId) as Goal;
         res.push(printGoal(goal));
     }
 

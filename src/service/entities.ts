@@ -22,6 +22,7 @@ export interface Plan {
     id: PlanId;
     version: Version;
     goals: Goal[];
+    goalsOrder: GoalId[];
     idSerialHack: number;
     goalsById: Map<GoalId, Goal>;
     metricsById: Map<MetricId, Metric>;
@@ -37,6 +38,7 @@ export interface Goal {
     range: GoalRange;
     deadline?: moment.Moment;
     subgoals: Goal[];
+    subgoalsOrder: GoalId[];
     metrics: Metric[];
     tasks: Task[];
     boards: Board[];

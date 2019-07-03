@@ -87,6 +87,7 @@ export class Service {
             range: req.range,
             deadline: Service.deadlineFromRange(rightNow, req.range),
             subgoals: [],
+            subgoalsOrder: [],
             metrics: [],
             tasks: [],
             boards: [],
@@ -97,19 +98,22 @@ export class Service {
         const newPlanAndSchedule = await this.dbModifyPlanAndSchedule(planAndSchedule => {
             const plan = planAndSchedule.plan;
 
+            plan.idSerialHack++;
+            newGoal.id = planAndSchedule.plan.idSerialHack;
+
             if (req.parentGoalId === undefined) {
                 plan.goals.push(newGoal);
+                plan.goalsOrder.push(newGoal.id);
             } else {
                 const parentGoal = Service.getGoalById(plan, req.parentGoalId);
                 newGoal.range = Service.limitRangeToParentRange(newGoal.range, parentGoal.range);
                 newGoal.deadline = Service.deadlineFromRange(rightNow, newGoal.range);
                 parentGoal.subgoals.push(newGoal);
+                parentGoal.subgoalsOrder.push(newGoal.id);
             }
 
-            planAndSchedule.plan.version.minor++;
-            planAndSchedule.plan.idSerialHack++;
-            newGoal.id = planAndSchedule.plan.idSerialHack;
-            planAndSchedule.plan.goalsById.set(newGoal.id, newGoal);
+            plan.version.minor++;
+            plan.goalsById.set(newGoal.id, newGoal);
 
             return [WhatToSave.PLAN_AND_SCHEDULE, planAndSchedule];
         });
@@ -137,29 +141,38 @@ export class Service {
 
                 const parentGoal = Service.getGoalById(plan, goal.parentGoalId, true);
                 goal.parentGoalId = undefined;
-                const index = parentGoal.subgoals.findIndex(g => g.id === goal.id);
-                parentGoal.subgoals.splice(index, 1);
+                const subgoalsIndex = parentGoal.subgoals.findIndex(g => g.id === goal.id);
+                parentGoal.subgoals.splice(subgoalsIndex, 1);
+                const subgoalsOrderIndex = parentGoal.subgoalsOrder.indexOf(goal.id);
+                parentGoal.subgoalsOrder.splice(subgoalsOrderIndex, 1);
                 plan.goals.push(goal);
+                plan.goalsOrder.push(goal.id);
             } else if (req.parentGoalId !== undefined && goal.parentGoalId === undefined) {
 
                 const parentGoal = Service.getGoalById(plan, req.parentGoalId);
                 goal.parentGoalId = req.parentGoalId;
                 goal.range = Service.limitRangeToParentRange(goal.range, parentGoal.range);
                 goal.deadline = Service.deadlineFromRange(rightNow, goal.range);
-                const index = plan.goals.findIndex( g => g.id === goal.id);
-                plan.goals.splice(index, 1);
+                const goalsIndex = plan.goals.findIndex( g => g.id === goal.id);
+                plan.goals.splice(goalsIndex, 1);
+                const goalsOrderIndex = plan.goalsOrder.indexOf(goal.id);
+                plan.goalsOrder.splice(goalsOrderIndex, 1);
                 parentGoal.subgoals.push(goal);
+                parentGoal.subgoalsOrder.push(goal.id);
             } else if (req.parentGoalId !== undefined && goal.parentGoalId !== undefined) {
 
                 const oldParentGoal = Service.getGoalById(plan, goal.parentGoalId, true);
                 const parentGoal = Service.getGoalById(plan, req.parentGoalId);
                 goal.parentGoalId = req.parentGoalId;
-                const index = oldParentGoal.subgoals.findIndex(g => g.id === goal.id);
-                oldParentGoal.subgoals.splice(index, 1);
+                const subgoalsIndex = oldParentGoal.subgoals.findIndex(g => g.id === goal.id);
+                oldParentGoal.subgoals.splice(subgoalsIndex, 1);
+                const subgoalsOrderIndex = oldParentGoal.subgoalsOrder.indexOf(goal.id);
+                oldParentGoal.subgoalsOrder.splice(subgoalsOrderIndex, 1);
                 goal.parentGoalId = req.parentGoalId;
                 goal.range = Service.limitRangeToParentRange(goal.range, parentGoal.range);
                 goal.deadline = Service.deadlineFromRange(rightNow, goal.range);
                 parentGoal.subgoals.push(goal);
+                parentGoal.subgoalsOrder.push(goal.id);
             }
 
             planAndSchedule.plan.version.minor++;
@@ -206,14 +219,24 @@ export class Service {
     public async markGoalAsDone(req: MarkGoalAsDoneRequest): Promise<MarkGoalAsDoneResponse> {
 
         const newPlanAndSchedule = await this.dbModifyPlanAndSchedule(planAndSchedule => {
-            const goal = Service.getGoalById(planAndSchedule.plan, req.goalId);
+            const plan = planAndSchedule.plan;
+            const goal = Service.getGoalById(plan, req.goalId);
+            const parentGoal = goal.parentGoalId ? Service.getGoalById(plan, goal.parentGoalId) : null;
 
             if (goal.isSystemGoal) {
                 throw new ServiceError(`Cannot mark system goal as done with id ${goal.id}`);
             }
 
+            if (parentGoal === null) {
+                const goalPosition = plan.goalsOrder.indexOf(goal.id);
+                plan.goalsOrder.splice(goalPosition, 1);
+            } else {
+                const goalPosition = parentGoal.subgoalsOrder.indexOf(goal.id);
+                parentGoal.subgoalsOrder.splice(goalPosition, 1);
+            }
+
             goal.isDone = true;
-            planAndSchedule.plan.version.minor++;
+            plan.version.minor++;
 
             return [WhatToSave.PLAN_AND_SCHEDULE, planAndSchedule];
         });
@@ -226,14 +249,24 @@ export class Service {
     public async archiveGoal(req: ArchiveGoalRequest): Promise<ArchiveGoalResponse> {
 
         const newPlanAndSchedule = await this.dbModifyPlanAndSchedule(planAndSchedule => {
-            const goal = Service.getGoalById(planAndSchedule.plan, req.goalId, false, true);
+            const plan = planAndSchedule.plan;
+            const goal = Service.getGoalById(plan, req.goalId, false, true);
+            const parentGoal = goal.parentGoalId ? Service.getGoalById(plan, goal.parentGoalId) : null;
 
             if (goal.isSystemGoal) {
                 throw new ServiceError(`Cannot archive system goal with id ${goal.id}`);
             }
 
+            if (parentGoal === null) {
+                const goalPosition = plan.goalsOrder.indexOf(goal.id);
+                plan.goalsOrder.splice(goalPosition, 1);
+            } else {
+                const goalPosition = parentGoal.subgoalsOrder.indexOf(goal.id);
+                parentGoal.subgoalsOrder.splice(goalPosition, 1);
+            }
+
             goal.isArchived = true;
-            planAndSchedule.plan.version.minor++;
+            plan.version.minor++;
 
             return [WhatToSave.PLAN_AND_SCHEDULE, planAndSchedule];
         });
@@ -824,6 +857,7 @@ export class Service {
             id: planRow.id,
             version: dbPlan.version,
             goals: dbPlan.goals.map((g: any) => Service.dbGoalToGoal(g)),
+            goalsOrder: dbPlan.goalsOrder,
             idSerialHack: dbPlan.idSerialHack,
             goalsById: new Map<number, Goal>(),
             metricsById: new Map<number, Metric>(),
@@ -847,6 +881,7 @@ export class Service {
             range: goalRow.range,
             deadline: goalRow.deadline ? moment.unix(goalRow.deadline).utc() : undefined,
             subgoals: goalRow.subgoals.map((g: any) => Service.dbGoalToGoal(g)),
+            subgoalsOrder: goalRow.subgoalsOrder,
             metrics: goalRow.metrics.map((m: any) => Service.dbMetricToMetric(m)),
             tasks: goalRow.tasks.map((t: any) => Service.dbTaskToTask(t)),
             boards: goalRow.boards.map((b: any) => Service.dbBoardToBoard(b)),
@@ -902,6 +937,7 @@ export class Service {
         return {
             version: plan.version,
             goals: plan.goals.map(g => Service.goalToDbGoal(g)),
+            goalsOrder: plan.goalsOrder,
             idSerialHack: plan.idSerialHack
         };
     }
@@ -916,6 +952,7 @@ export class Service {
             range: goal.range,
             deadline: goal.deadline ? goal.deadline.unix() : undefined,
             subgoals: goal.subgoals.map(g => Service.goalToDbGoal(g)),
+            subgoalsOrder: goal.subgoalsOrder,
             metrics: goal.metrics.map(m => Service.metricToDbMetric(m)),
             tasks: goal.tasks.map(t => Service.taskToDbTask(t)),
             boards: goal.boards.map(b => Service.boardToDbBoard(b)),
@@ -1068,12 +1105,14 @@ export class Service {
                     description: "Stuff you're working on outside of any big project",
                     range: GoalRange.LIFETIME,
                     subgoals: [],
+                    subgoalsOrder: [],
                     metrics: [],
                     tasks: [],
                     boards: [],
                     isDone: false,
                     isArchived: false
                 }],
+                goalsOrder: [1],
                 idSerialHack: 1,
                 goalsById: new Map<number, Goal>(),
                 metricsById: new Map<number, Metric>(),
