@@ -87,6 +87,7 @@ export class Service {
             range: req.range,
             deadline: Service.deadlineFromRange(rightNow, req.range),
             subgoals: [],
+            subgoalsById: new Map<GoalId, Goal>(),
             subgoalsOrder: [],
             metrics: [],
             tasks: [],
@@ -109,6 +110,7 @@ export class Service {
                 newGoal.range = Service.limitRangeToParentRange(newGoal.range, parentGoal.range);
                 newGoal.deadline = Service.deadlineFromRange(rightNow, newGoal.range);
                 parentGoal.subgoals.push(newGoal);
+                parentGoal.subgoalsById.set(newGoal.id, newGoal);
                 parentGoal.subgoalsOrder.push(newGoal.id);
             }
 
@@ -127,6 +129,12 @@ export class Service {
 
         const rightNow = moment.utc();
 
+        if (!req.moveToToplevel && req.parentGoalId === undefined && req.position === undefined) {
+            throw new ServiceError("You must specifiy at least one of toplevel, parentGoalId or position");
+        } else if (req.moveToToplevel && req.parentGoalId !== undefined) {
+            throw new ServiceError(`Cannot both move to toplevel and a child under ${req.parentGoalId}`);
+        }
+
         const newPlanAndSchedule = await this.dbModifyPlanAndSchedule(planAndSchedule => {
             const plan = planAndSchedule.plan;
             const goal = Service.getGoalById(plan, req.goalId, true);
@@ -135,44 +143,133 @@ export class Service {
                 throw new ServiceError(`Cannot move system goal with id ${goal.id}`);
             }
 
-            if (req.parentGoalId === undefined && goal.parentGoalId === undefined) {
-                // Nothing to do here - goal is already at toplevel.
-            } else if (req.parentGoalId === undefined && goal.parentGoalId !== undefined) {
+            // The following method is quite hairy. It covers moving a goal between the toplevel
+            // and another goal as a child, as well as moving the goal in the order of subgoals
+            // of its parent. Which is arguably trying too much, but it makes for an easier interface
+            // for clients. So we have to be tactical about this. There's three parameters in the request
+            // which influence what happens, in the sense that if they're set we must do something special.
+            // Ditto, if the goal is at the toplevel or under another goal adds an extra dimension. So
+            // there are in total 16 combinations of things we must consider. Which hints that we should
+            // have an if/else block with 16 cases. However, the following simplifications help:
+            // * in most circumstances if a req.position is specified or not, can be treated inside the block.
+            // * all parameters "unset" are not alowed.
+            // * both req.moveToToplevel and req.parentGoalId !== undefined cannot be set.
+            // After these, we can have just 7 cases. One of which is empty because there's nothing to do,
+            // and another two which just move the goal in the order of its parent.
+
+            if (req.moveToToplevel && req.parentGoalId === undefined && goal.parentGoalId !== undefined) {
+                // Move a child goal to the toplevel.
 
                 const parentGoal = Service.getGoalById(plan, goal.parentGoalId, true);
                 goal.parentGoalId = undefined;
                 const subgoalsIndex = parentGoal.subgoals.findIndex(g => g.id === goal.id);
-                parentGoal.subgoals.splice(subgoalsIndex, 1);
                 const subgoalsOrderIndex = parentGoal.subgoalsOrder.indexOf(goal.id);
+                parentGoal.subgoals.splice(subgoalsIndex, 1);
+                parentGoal.subgoalsById.delete(goal.id);
                 parentGoal.subgoalsOrder.splice(subgoalsOrderIndex, 1);
+
                 plan.goals.push(goal);
-                plan.goalsOrder.push(goal.id);
-            } else if (req.parentGoalId !== undefined && goal.parentGoalId === undefined) {
+                if (req.position === undefined) {
+                    plan.goalsOrder.push(goal.id);
+                } else {
+                    if (req.position < 1 || req.position > plan.goalsOrder.length) {
+                        throw new ServiceError(`Cannot move goal with id ${goal.id} to position ${req.position}`);
+                    }
+
+                    plan.goalsOrder.splice(req.position - 1, 0, goal.id);
+                }
+            } else if (req.moveToToplevel && req.parentGoalId === undefined && goal.parentGoalId === undefined && req.position !== undefined) {
+                // Move a toplevel goal to the toplevel at a certain position
+
+                if (req.position < 1 || req.position > plan.goalsOrder.length) {
+                    throw new ServiceError(`Cannot move goal with id ${goal.id} to position ${req.position}`);
+                }
+
+                const goalsIndex = plan.goalsOrder.indexOf(goal.id);
+                plan.goalsOrder.splice(goalsIndex, 1);
+                plan.goalsOrder.splice(req.position - 1, 0, goal.id);
+            } else if (req.moveToToplevel && req.parentGoalId === undefined && goal.parentGoalId === undefined && req.position === undefined) {
+                // Move a toplevel goal to the toplevel.
+
+                // Nothing to do!
+            } else if (!req.moveToToplevel && req.parentGoalId !== undefined && goal.parentGoalId !== undefined) {
+                // Move a child goal as a child of another goal
+
+                const oldParentGoal = Service.getGoalById(plan, goal.parentGoalId, true);
+                const parentGoal = Service.getGoalById(plan, req.parentGoalId);
+                goal.parentGoalId = req.parentGoalId;
+                const subgoalsIndex = oldParentGoal.subgoals.findIndex(g => g.id === goal.id);
+                const subgoalsOrderIndex = oldParentGoal.subgoalsOrder.indexOf(goal.id);
+                oldParentGoal.subgoals.splice(subgoalsIndex, 1);
+                oldParentGoal.subgoalsById.delete(goal.id);
+                oldParentGoal.subgoalsOrder.splice(subgoalsOrderIndex, 1);
+                goal.parentGoalId = req.parentGoalId;
+                goal.range = Service.limitRangeToParentRange(goal.range, parentGoal.range);
+                goal.deadline = Service.deadlineFromRange(rightNow, goal.range);
+
+                parentGoal.subgoals.push(goal);
+                parentGoal.subgoalsById.set(goal.id, goal);
+                if (req.position === undefined) {
+                    parentGoal.subgoalsOrder.push(goal.id);
+                } else {
+                    if (req.position < 1 || req.position > parentGoal.subgoalsOrder.length) {
+                        throw new ServiceError(`Cannot move goal with id ${goal.id} to position ${req.position}`);
+                    }
+
+                    plan.goalsOrder.splice(req.position - 1, 0, goal.id);
+                }
+            } else if (!req.moveToToplevel && req.parentGoalId !== undefined && goal.parentGoalId === undefined) {
+                // Move a toplevel goal as a child of another goal
+
+                console.log("here");
 
                 const parentGoal = Service.getGoalById(plan, req.parentGoalId);
                 goal.parentGoalId = req.parentGoalId;
                 goal.range = Service.limitRangeToParentRange(goal.range, parentGoal.range);
                 goal.deadline = Service.deadlineFromRange(rightNow, goal.range);
                 const goalsIndex = plan.goals.findIndex( g => g.id === goal.id);
-                plan.goals.splice(goalsIndex, 1);
                 const goalsOrderIndex = plan.goalsOrder.indexOf(goal.id);
+                plan.goals.splice(goalsIndex, 1);
                 plan.goalsOrder.splice(goalsOrderIndex, 1);
-                parentGoal.subgoals.push(goal);
-                parentGoal.subgoalsOrder.push(goal.id);
-            } else if (req.parentGoalId !== undefined && goal.parentGoalId !== undefined) {
 
-                const oldParentGoal = Service.getGoalById(plan, goal.parentGoalId, true);
-                const parentGoal = Service.getGoalById(plan, req.parentGoalId);
-                goal.parentGoalId = req.parentGoalId;
-                const subgoalsIndex = oldParentGoal.subgoals.findIndex(g => g.id === goal.id);
-                oldParentGoal.subgoals.splice(subgoalsIndex, 1);
-                const subgoalsOrderIndex = oldParentGoal.subgoalsOrder.indexOf(goal.id);
-                oldParentGoal.subgoalsOrder.splice(subgoalsOrderIndex, 1);
-                goal.parentGoalId = req.parentGoalId;
-                goal.range = Service.limitRangeToParentRange(goal.range, parentGoal.range);
-                goal.deadline = Service.deadlineFromRange(rightNow, goal.range);
                 parentGoal.subgoals.push(goal);
-                parentGoal.subgoalsOrder.push(goal.id);
+                parentGoal.subgoalsById.set(goal.id, goal);
+                if (req.position === undefined) {
+                    console.log("there");
+                    parentGoal.subgoalsOrder.push(goal.id);
+                } else {
+                    console.log("everywhere");
+                    if (req.position < 1 || req.position > parentGoal.subgoalsOrder.length) {
+                        throw new ServiceError(`Cannot move goal with id ${goal.id} to position ${req.position}`);
+                    }
+
+                    parentGoal.subgoalsOrder.splice(req.position - 1, 0, goal.id);
+                    console.log(parentGoal.subgoalsOrder);
+                }
+            } else if (!req.moveToToplevel && req.parentGoalId === undefined && goal.parentGoalId !== undefined && req.position !== undefined) {
+                // Move a child goal to a certain position in its parent.
+
+                const parentGoal = Service.getGoalById(plan, goal.parentGoalId);
+
+                if (req.position < 1 || req.position > parentGoal.subgoalsOrder.length) {
+                    throw new ServiceError(`Cannot move goal with id ${goal.id} to position ${req.position}`);
+                }
+
+                const subgoalsOrderIndex = parentGoal.subgoalsOrder.indexOf(goal.id);
+                parentGoal.subgoalsOrder.splice(subgoalsOrderIndex, 1);
+                parentGoal.subgoalsOrder.splice(req.position - 1, 0, goal.id);
+            } else if (!req.moveToToplevel && req.parentGoalId === undefined && goal.parentGoalId === undefined && req.position !== undefined) {
+                // Move a toplevel goal to a certain position.
+
+                if (req.position < 1 || req.position > plan.goalsOrder.length) {
+                    throw new ServiceError(`Cannot move goal with id ${goal.id} to position ${req.position}`);
+                }
+
+                const goalsIndex = plan.goalsOrder.indexOf(goal.id);
+                plan.goalsOrder.splice(goalsIndex, 1);
+                plan.goalsOrder.splice(req.position - 1, 0, goal.id);
+            } else {
+                throw new CriticalServiceError("Invalid service path!");
             }
 
             planAndSchedule.plan.version.minor++;
@@ -872,7 +969,7 @@ export class Service {
     }
 
     private static dbGoalToGoal(goalRow: any): Goal {
-        return {
+        const goal: Goal = {
             id: goalRow.id,
             parentGoalId: goalRow.parentGoalId,
             isSystemGoal: goalRow.isSystemGoal,
@@ -881,6 +978,7 @@ export class Service {
             range: goalRow.range,
             deadline: goalRow.deadline ? moment.unix(goalRow.deadline).utc() : undefined,
             subgoals: goalRow.subgoals.map((g: any) => Service.dbGoalToGoal(g)),
+            subgoalsById: new Map<GoalId, Goal>(),
             subgoalsOrder: goalRow.subgoalsOrder,
             metrics: goalRow.metrics.map((m: any) => Service.dbMetricToMetric(m)),
             tasks: goalRow.tasks.map((t: any) => Service.dbTaskToTask(t)),
@@ -888,6 +986,12 @@ export class Service {
             isDone: goalRow.isDone,
             isArchived: goalRow.isArchived
         };
+
+        for (const subGoal of goal.subgoals) {
+            goal.subgoalsById.set(subGoal.id, subGoal);
+        }
+
+        return goal;
     }
 
     private static dbMetricToMetric(metricRow: any): Metric {
@@ -1105,6 +1209,7 @@ export class Service {
                     description: "Stuff you're working on outside of any big project",
                     range: GoalRange.LIFETIME,
                     subgoals: [],
+                    subgoalsById: new Map<GoalId, Goal>(),
                     subgoalsOrder: [],
                     metrics: [],
                     tasks: [],
@@ -1114,9 +1219,9 @@ export class Service {
                 }],
                 goalsOrder: [1],
                 idSerialHack: 1,
-                goalsById: new Map<number, Goal>(),
-                metricsById: new Map<number, Metric>(),
-                tasksById: new Map<number, Task>()
+                goalsById: new Map<GoalId, Goal>(),
+                metricsById: new Map<MetricId, Metric>(),
+                tasksById: new Map<TaskId, Task>()
             },
             schedule: {
                 id: -1,
@@ -1127,8 +1232,8 @@ export class Service {
                 scheduledTasks: [],
                 collectedMetrics: [],
                 idSerialHack: 0,
-                collectedMetricsByMetricId: new Map<number, CollectedMetric>(),
-                scheduledTasksByTaskId: new Map<number, ScheduledTask>()
+                collectedMetricsByMetricId: new Map<MetricId, CollectedMetric>(),
+                scheduledTasksByTaskId: new Map<TaskId, ScheduledTask>()
             }
         };
         newPlanAndSchedule.plan.goalsById.set(1, newPlanAndSchedule.plan.goals[0]);
@@ -1243,7 +1348,9 @@ export interface CreateGoalResponse {
 
 export interface MoveGoalRequest {
     goalId: GoalId;
+    moveToToplevel?: boolean;
     parentGoalId?: GoalId;
+    position?: number;
 }
 
 export interface MoveGoalResponse {

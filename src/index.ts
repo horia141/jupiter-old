@@ -71,15 +71,27 @@ async function main() {
         });
 
     vorpal
-        .command("plan:move-goal <goalId> [parentGoalId]")
-        .description("Moves a goal to be a child of another goal or at the toplevel if none is given")
+        .command("plan:move-goal <goalId>")
+        .description("Moves a goal to be a child of another goal, to the toplevel or to a new position")
+        .option("-t, --toplevel", "Moves goal to the toplevel")
+        .option("-c, --childOf <parentGoalId>", "Moves goal to be a child of the specified goal")
+        .option("-p, --position <position>", "Moves goal at position under its parent")
+        .types({ string: [ "t", "toplevel", "c", "childOf", "p", "position" ]})
         .action(async function (this: Vorpal, args: Args) {
             const goalId = Number.parseInt(args.goalId);
-            const parentGoalId = args.parentGoalId !== undefined ? Number.parseInt(args.parentGoalId) : undefined;
+            const moveToToplevel = args.options.toplevel !== undefined;
+            const parentGoalId = args.options.childOf !== undefined ? Number.parseInt(args.options.childOf) : undefined;
+            const position = args.options.position !== undefined ? Number.parseInt(args.options.position) : undefined;
+
+            if (!moveToToplevel && parentGoalId === undefined && position === undefined) {
+                throw new Error("You must specify at least one of --toplevel or --childOf or --position");
+            }
 
             const req = {
                 goalId: goalId,
-                parentGoalId: parentGoalId
+                moveToToplevel: moveToToplevel,
+                parentGoalId: parentGoalId,
+                position: position
             };
             const res = await service.moveGoal(req);
             this.log(printPlan(res.plan));
@@ -416,14 +428,11 @@ function printGoal(goal: Goal, indent: number = 0): string {
 
     res.push(`${indentStr}[${goal.id}] ${goal.title} (${goal.range}@${goal.deadline ? goal.deadline.format("YYYY-MM-DD hh:mm UTC") : ""}):`);
 
-    if (goal.subgoals.filter(g => !(g.isArchived || g.isDone)).length > 0) {
+    if (goal.subgoalsOrder.length > 0) {
         res.push(`${indentStr}  subgoals:`);
 
-        for (const subGoal of goal.subgoals) {
-            if (subGoal.isArchived || subGoal.isDone) {
-                continue;
-            }
-
+        for (const subGoalId of goal.subgoalsOrder) {
+            const subGoal = goal.subgoalsById.get(subGoalId) as Goal;
             res.push(printGoal(subGoal, indent + 2));
         }
     }

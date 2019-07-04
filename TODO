@@ -1,5 +1,4 @@
 Commands to add:
-* Add notion of goal order and commands to shift goals around.
 * Add notion of metric order and commands to shift metrics around
 * Add notion of task order and commands to shift tasks around
 * Add command add subtask to a task

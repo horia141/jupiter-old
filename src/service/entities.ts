@@ -38,6 +38,7 @@ export interface Goal {
     range: GoalRange;
     deadline?: moment.Moment;
     subgoals: Goal[];
+    subgoalsById: Map<GoalId, Goal>;
     subgoalsOrder: GoalId[];
     metrics: Metric[];
     tasks: Task[];
