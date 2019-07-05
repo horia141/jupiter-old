@@ -97,6 +97,8 @@ export class Service {
             subgoalsById: new Map<GoalId, Goal>(),
             subgoalsOrder: [],
             metrics: [],
+            metricsById: new Map<MetricId, Metric>(),
+            metricsOrder: [],
             tasks: [],
             tasksById: new Map<TaskId, Task>(),
             tasksOrder: [],
@@ -404,18 +406,80 @@ export class Service {
             const schedule = planAndSchedule.schedule;
             const goal = Service.getGoalById(plan, req.goalId);
 
-            goal.metrics.push(newMetric);
-            plan.version.minor++;
             plan.idSerialHack++;
             newMetric.id = plan.idSerialHack;
-            plan.metricsById.set(newMetric.id, newMetric);
 
-            schedule.collectedMetrics.push(newCollectedMetric);
-            schedule.version.minor++;
             schedule.idSerialHack++;
             newCollectedMetric.id = schedule.idSerialHack;
             newCollectedMetric.metricId = newMetric.id;
+
+            goal.metrics.push(newMetric);
+            goal.metricsById.set(newMetric.id, newMetric);
+            goal.metricsOrder.push(newMetric.id);
+
+            plan.metricsById.set(newMetric.id, newMetric);
+
+            schedule.collectedMetrics.push(newCollectedMetric);
             schedule.collectedMetricsByMetricId.set(newMetric.id, newCollectedMetric);
+
+            plan.version.minor++;
+            schedule.version.minor++;
+
+            return [WhatToSave.PLAN_AND_SCHEDULE, planAndSchedule];
+        });
+
+        return {
+            plan: newPlanAndSchedule.plan
+        };
+    }
+
+    public async moveMetric(req: MoveMetricRequest): Promise<MoveMetricResponse> {
+
+        if (req.goalId === undefined && req.position === undefined) {
+            throw new ServiceError("You must specify at least one of goalId or position");
+        }
+
+        const newPlanAndSchedule = await this.dbModifyPlanAndSchedule(planAndSchedule => {
+            const plan = planAndSchedule.plan;
+            const metric = Service.getMetricById(plan, req.metricId);
+
+            if (req.goalId !== undefined) {
+                const oldGoal = Service.getGoalById(plan, metric.goalId);
+                const newGoal = Service.getGoalById(plan, req.goalId);
+
+                metric.goalId = req.goalId;
+                const oldGoalIndex = oldGoal.metrics.findIndex(m => m.id === metric.id);
+                const oldGoalOrderIndex = oldGoal.metricsOrder.indexOf(metric.id);
+                oldGoal.metrics.splice(oldGoalIndex, 1);
+                oldGoal.metricsById.delete(metric.id);
+                oldGoal.metricsOrder.splice(oldGoalOrderIndex, 1);
+
+                newGoal.metrics.push(metric);
+                newGoal.metricsById.set(metric.id, metric);
+                if (req.position !== undefined) {
+                    if (req.position < 1 || req.position > newGoal.metricsOrder.length) {
+                        throw new ServiceError(`Cannot move metric with id ${metric.id} to position ${req.position}`);
+                    }
+
+                    newGoal.metricsOrder.splice(req.position - 1, 0, metric.id);
+                } else {
+                    newGoal.metricsOrder.push(metric.id);
+                }
+            } else if (req.position !== undefined) {
+                const goal = Service.getGoalById(plan, metric.goalId);
+
+                if (req.position < 1 || req.position > goal.metricsOrder.length) {
+                    throw new ServiceError(`Cannot move metric with id ${metric.id} to position ${req.position}`);
+                }
+
+                const goalOrderIndex = goal.metricsOrder.indexOf(metric.id);
+                goal.metricsOrder.splice(goalOrderIndex, 1);
+                goal.metricsOrder.splice(req.position - 1, 0, metric.id);
+            } else {
+                throw new CriticalServiceError("Invalid service path!");
+            }
+
+            planAndSchedule.plan.version.minor++;
 
             return [WhatToSave.PLAN_AND_SCHEDULE, planAndSchedule];
         });
@@ -510,12 +574,6 @@ export class Service {
             plan.idSerialHack++;
             newTask.id = plan.idSerialHack;
 
-            goal.tasks.push(newTask);
-            goal.tasksById.set(newTask.id, newTask);
-            goal.tasksOrder.push(newTask.id);
-
-            schedule.scheduledTasks.push(newScheduledTask);
-            schedule.version.minor++;
             schedule.idSerialHack++;
             newScheduledTask.id = schedule.idSerialHack;
             newScheduledTask.taskId = newTask.id;
@@ -523,7 +581,17 @@ export class Service {
             newScheduledTask.entries[0].id = schedule.idSerialHack;
             newScheduledTask.entries[0].scheduledTaskId = newScheduledTask.id;
 
+            goal.tasks.push(newTask);
+            goal.tasksById.set(newTask.id, newTask);
+            goal.tasksOrder.push(newTask.id);
+
+            plan.tasksById.set(newTask.id, newTask);
+
+            schedule.scheduledTasks.push(newScheduledTask);
+            schedule.scheduledTasksByTaskId.set(newTask.id, newScheduledTask);
+
             plan.version.minor++;
+            schedule.version.minor++;
 
             return [WhatToSave.PLAN_AND_SCHEDULE, planAndSchedule];
         });
@@ -1048,6 +1116,10 @@ export class Service {
                 populateIndices(subGoal);
             }
 
+            for (const metric of goal.metrics) {
+                goal.metricsById.set(metric.id, metric);
+            }
+
             for (const task of goal.tasks) {
                 goal.tasksById.set(task.id, task);
             }
@@ -1065,6 +1137,8 @@ export class Service {
             subgoalsById: new Map<GoalId, Goal>(),
             subgoalsOrder: goalRow.subgoalsOrder,
             metrics: goalRow.metrics.map((m: any) => Service.dbMetricToMetric(m)),
+            metricsById: new Map<MetricId, Metric>(),
+            metricsOrder: goalRow.metricsOrder,
             tasks: goalRow.tasks.map((t: any) => Service.dbTaskToTask(t)),
             tasksById: new Map<TaskId, Task>(),
             tasksOrder: goalRow.tasksOrder,
@@ -1142,6 +1216,7 @@ export class Service {
             subgoals: goal.subgoals.map(g => Service.goalToDbGoal(g)),
             subgoalsOrder: goal.subgoalsOrder,
             metrics: goal.metrics.map(m => Service.metricToDbMetric(m)),
+            metricsOrder: goal.metricsOrder,
             tasks: goal.tasks.map(t => Service.taskToDbTask(t)),
             tasksOrder: goal.tasksOrder,
             boards: goal.boards.map(b => Service.boardToDbBoard(b)),
@@ -1217,7 +1292,7 @@ export class Service {
             scheduledTasks: dbSchedule.scheduledTasks.map((st: any) => {
                 return {
                     id: st.id,
-                    taskId: st.taskId,
+                    taskId: st.metricId,
                     entries: st.entries.map((ste: any) => {
                         return {
                             id: ste.id,
@@ -1297,6 +1372,8 @@ export class Service {
                     subgoalsById: new Map<GoalId, Goal>(),
                     subgoalsOrder: [],
                     metrics: [],
+                    metricsById: new Map<MetricId, Metric>(),
+                    metricsOrder: [],
                     tasks: [],
                     tasksById: new Map<TaskId, Task>(),
                     tasksOrder: [],
@@ -1479,6 +1556,16 @@ export interface CreateMetricRequest {
 }
 
 export interface CreateMetricResponse {
+    plan: Plan;
+}
+
+export interface MoveMetricRequest {
+    metricId: MetricId;
+    goalId?: GoalId;
+    position?: number;
+}
+
+export interface MoveMetricResponse {
     plan: Plan;
 }
 

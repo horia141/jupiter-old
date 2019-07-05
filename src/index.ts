@@ -11,10 +11,12 @@ import {
     getTaskRepeatSchedule,
     Goal,
     GoalRange,
+    Metric,
     MetricType,
     Plan,
     Schedule,
-    ScheduledTask, Task,
+    ScheduledTask,
+    Task,
     TaskPriority
 } from "./service/entities";
 
@@ -180,6 +182,26 @@ async function main() {
                 isCounter: isCounter
             };
             const res = await service.createMetric(req);
+            this.log(printPlan(res.plan));
+        });
+
+    vorpal
+        .command("plan:move-metric <metricId>")
+        .description("Move a metric to another goal, or to a new position")
+        .option("-c, --childOf <goalId>", "Moves metric to be a child of the given goal")
+        .option("-p, --position <position>", "Moves metric at position under the goal")
+        .types({ string: [ "c", "childOf", "p", "position" ]})
+        .action(async function (this: Vorpal, args: Args) {
+            const metricId = Number.parseInt(args.metricId);
+            const goalId = args.options.childOf !== undefined ? Number.parseInt(args.options.childOf) : undefined;
+            const position = args.options.position !== undefined ? Number.parseInt(args.options.position) : undefined;
+
+            const req = {
+                metricId: metricId,
+                goalId: goalId,
+                position: position
+            };
+            const res = await service.moveMetric(req);
             this.log(printPlan(res.plan));
         });
 
@@ -453,15 +475,11 @@ function printGoal(goal: Goal, indent: number = 0): string {
         }
     }
 
-    if (goal.metrics.filter(m => !m.isArchived).length > 0) {
-
+    if (goal.metricsOrder.length > 0) {
         res.push(`${indentStr}  metrics:`);
 
-        for (const metric of goal.metrics) {
-            if (metric.isArchived) {
-                continue;
-            }
-
+        for (const metricId of goal.metricsOrder) {
+            const metric = goal.metricsById.get(metricId) as Metric;
             res.push(`${indentStr}    [${metric.id}] ${metric.type === MetricType.GAUGE ? 'g' : 'c'} ${metric.title}`);
         }
     }

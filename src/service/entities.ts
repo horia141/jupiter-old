@@ -41,6 +41,8 @@ export interface Goal {
     subgoalsById: Map<GoalId, Goal>;
     subgoalsOrder: GoalId[];
     metrics: Metric[];
+    metricsById: Map<MetricId, Metric>;
+    metricsOrder: MetricId[];
     tasks: Task[];
     tasksById: Map<TaskId, Task>;
     tasksOrder: TaskId[];
