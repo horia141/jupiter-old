@@ -14,7 +14,7 @@ import {
     MetricType,
     Plan,
     Schedule,
-    ScheduledTask,
+    ScheduledTask, Task,
     TaskPriority
 } from "./service/entities";
 
@@ -72,7 +72,7 @@ async function main() {
 
     vorpal
         .command("plan:move-goal <goalId>")
-        .description("Moves a goal to be a child of another goal, to the toplevel or to a new position")
+        .description("Move a goal to be a child of another goal, to the toplevel or to a new position")
         .option("-t, --toplevel", "Moves goal to the toplevel")
         .option("-c, --childOf <parentGoalId>", "Moves goal to be a child of the specified goal")
         .option("-p, --position <position>", "Moves goal at position under its parent")
@@ -82,10 +82,6 @@ async function main() {
             const moveToToplevel = args.options.toplevel !== undefined;
             const parentGoalId = args.options.childOf !== undefined ? Number.parseInt(args.options.childOf) : undefined;
             const position = args.options.position !== undefined ? Number.parseInt(args.options.position) : undefined;
-
-            if (!moveToToplevel && parentGoalId === undefined && position === undefined) {
-                throw new Error("You must specify at least one of --toplevel or --childOf or --position");
-            }
 
             const req = {
                 goalId: goalId,
@@ -258,6 +254,26 @@ async function main() {
                 repeatSchedule: repeatSchedule
             };
             const res = await service.createTask(req);
+            this.log(printPlan(res.plan));
+        });
+
+    vorpal
+        .command("plan:move-task <taskId>")
+        .description("Move a task to another goal, or to a new position")
+        .option("-c, --childOf <goalId>", "Moves task to be a child of the given goal")
+        .option("-p, --position <position>", "Moves task at position under the goal")
+        .types({ string: [ "c", "childOf", "p", "position" ]})
+        .action(async function (this: Vorpal, args: Args) {
+            const taskId = Number.parseInt(args.taskId);
+            const goalId = args.options.childOf !== undefined ? Number.parseInt(args.options.childOf) : undefined;
+            const position = args.options.position !== undefined ? Number.parseInt(args.options.position) : undefined;
+
+            const req = {
+                taskId: taskId,
+                goalId: goalId,
+                position: position
+            };
+            const res = await service.moveTask(req);
             this.log(printPlan(res.plan));
         });
 
@@ -450,15 +466,11 @@ function printGoal(goal: Goal, indent: number = 0): string {
         }
     }
 
-    if (goal.tasks.filter(t => !t.isArchived).length > 0) {
-
+    if (goal.tasksOrder.length > 0) {
         res.push(`${indentStr}  tasks:`);
 
-        for (const task of goal.tasks) {
-            if (task.isArchived) {
-                continue;
-            }
-
+        for (const taskId of goal.tasksOrder) {
+            const task = goal.tasksById.get(taskId) as Task;
             res.push(`${indentStr}    [${task.id}] ${task.title} @${task.deadline ? task.deadline.format("YYYY-MM-DD hh:mm UTC") : ""} ${task.priority === TaskPriority.HIGH ? "(high)" : ""} ${task.repeatSchedule ? task.repeatSchedule : ""}`);
         }
     }

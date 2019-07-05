@@ -42,6 +42,8 @@ export interface Goal {
     subgoalsOrder: GoalId[];
     metrics: Metric[];
     tasks: Task[];
+    tasksById: Map<TaskId, Task>;
+    tasksOrder: TaskId[];
     boards: Board[];
     isDone: boolean;
     isArchived: boolean;
