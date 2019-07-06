@@ -552,7 +552,7 @@ function printTask(task: Task, indent: number): string {
     res.push(`${indentStr}    [${task.id}] ${task.title} @${task.deadline ? task.deadline.format("YYYY-MM-DD hh:mm UTC") : ""} ${task.priority === TaskPriority.HIGH ? "(high)" : ""} ${task.repeatSchedule ? task.repeatSchedule : ""}`);
 
     if (task.subTasksOrder.length > 0) {
-        res.push(`${indentStr}      subTasks:`);
+        res.push(`${indentStr}      subtasks:`);
 
         for (const subTaskId of task.subTasksOrder) {
             const subTask = task.subTasksById.get(subTaskId) as SubTask;
