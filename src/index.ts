@@ -305,6 +305,7 @@ async function main() {
         .action(async function (this: Vorpal, args: Args) {
             const taskId = Number.parseInt(args.taskId);
             const title = args.title.join(" ");
+
             const req = {
                 taskId: taskId,
                 title: title
@@ -411,6 +412,21 @@ async function main() {
                 parentSubTaskId: parentSubTaskId
             };
             const res = await service.createSubTask(req);
+            this.log(printPlan(res.plan));
+        });
+
+    vorpal
+        .command("plan:set-subtask-title <subTaskId> <title...>")
+        .description("Change the name of a subtask")
+        .action(async function (this: Vorpal, args: Args) {
+            const subTaskId = Number.parseInt(args.subTaskId);
+            const title = args.title.join(" ");
+
+            const req = {
+                subTaskId: subTaskId,
+                title: title
+            };
+            const res = await service.updateSubTask(req);
             this.log(printPlan(res.plan));
         });
 
@@ -522,11 +538,11 @@ function printTask(task: Task, indent: number): string {
 
     res.push(`${indentStr}    [${task.id}] ${task.title} @${task.deadline ? task.deadline.format("YYYY-MM-DD hh:mm UTC") : ""} ${task.priority === TaskPriority.HIGH ? "(high)" : ""} ${task.repeatSchedule ? task.repeatSchedule : ""}`);
 
-    if (task.subtasksOrder.length > 0) {
-        res.push(`${indentStr}      subtasks:`);
+    if (task.subTasksOrder.length > 0) {
+        res.push(`${indentStr}      subTasks:`);
 
-        for (const subTaskId of task.subtasksOrder) {
-            const subTask = task.subtasksById.get(subTaskId) as SubTask;
+        for (const subTaskId of task.subTasksOrder) {
+            const subTask = task.subTasksById.get(subTaskId) as SubTask;
             res.push(printSubTask(subTask, indent + 8));
         }
     }
@@ -540,9 +556,9 @@ function printSubTask(subTask: SubTask, indent: number): string {
 
     res.push(`${indentStr}[${subTask.id}] ${subTask.title}`);
 
-    if (subTask.subtasksOrder.length > 0) {
-        for (const subSubTaskId of subTask.subtasksOrder) {
-            const subSubTask = subTask.subtasksById.get(subSubTaskId) as SubTask;
+    if (subTask.subTasksOrder.length > 0) {
+        for (const subSubTaskId of subTask.subTasksOrder) {
+            const subSubTask = subTask.subTasksById.get(subSubTaskId) as SubTask;
             res.push(printSubTask(subSubTask, indent + 2));
         }
     }

@@ -27,6 +27,7 @@ export interface Plan {
     goalsById: Map<GoalId, Goal>;
     metricsById: Map<MetricId, Metric>;
     tasksById: Map<TaskId, Task>;
+    subTasksById: Map<SubTaskId, SubTask>;
 }
 
 export interface Goal {
@@ -86,9 +87,9 @@ export interface Task {
     deadline?: moment.Moment;
     repeatSchedule?: TaskRepeatSchedule;
     reminderPolicy?: any;
-    subtasks: SubTask[];
-    subtasksById: Map<SubTaskId, SubTask>;
-    subtasksOrder: SubTaskId[];
+    subTasks: SubTask[];
+    subTasksById: Map<SubTaskId, SubTask>;
+    subTasksOrder: SubTaskId[];
     donePolicy?: any;
     inProgress: boolean;
     isArchived: boolean;
@@ -120,9 +121,9 @@ export interface SubTask {
     taskId: TaskId;
     parentSubTaskId?: SubTaskId;
     title: string;
-    subtasks: SubTask[];
-    subtasksById: Map<SubTaskId, SubTask>;
-    subtasksOrder: SubTaskId[];
+    subTasks: SubTask[];
+    subTasksById: Map<SubTaskId, SubTask>;
+    subTasksOrder: SubTaskId[];
 }
 
 export interface Board {

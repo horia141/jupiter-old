@@ -1,6 +1,6 @@
 Commands to add:
-* Command to change title of a subtask
 * Move subtask to be a child of a another subtask of of top-level task
 * Add notion of subtask order and commands to shift subtasks around
 * Archive subtasks
 * Make move avoid circular paths!
+* Proper handling of subtasks in the schedule!
