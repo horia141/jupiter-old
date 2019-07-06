@@ -374,6 +374,7 @@ export class Service {
             }
 
             goal.isArchived = true;
+
             plan.version.minor++;
 
             return [WhatToSave.PLAN_AND_SCHEDULE, planAndSchedule];
@@ -765,7 +766,8 @@ export class Service {
             title: req.title,
             subTasks: [],
             subTasksById: new Map<SubTaskId, SubTask>(),
-            subTasksOrder: []
+            subTasksOrder: [],
+            isArchived: false
         };
 
         const newPlanAndSchedule = await this.dbModifyPlanAndSchedule(planAndSchedule => {
@@ -814,6 +816,35 @@ export class Service {
             if (req.title !== undefined) {
                 subTask.title = req.title;
             }
+
+            plan.version.minor++;
+
+            return [WhatToSave.PLAN_AND_SCHEDULE, planAndSchedule];
+        });
+
+        return {
+            plan: newPlanAndSchedule.plan
+        };
+    }
+
+    public async archiveSubTask(req: ArchiveSubTaskRequest): Promise<ArchiveSubTaskResponse> {
+
+        const newPlanAndSchedule = await this.dbModifyPlanAndSchedule(planAndSchedule => {
+            const plan = planAndSchedule.plan;
+            const subTask = Service.getSubTaskById(plan, req.subTaskId);
+            const parentSubTask = subTask.parentSubTaskId ? Service.getSubTaskById(plan, subTask.parentSubTaskId) : null;
+            const task = Service.getTaskById(plan, subTask.taskId);
+            Service.getGoalById(plan, task.goalId, true);
+
+            if (parentSubTask === null) {
+                const subTaskIndex = task.subTasksOrder.indexOf(subTask.id);
+                task.subTasksOrder.splice(subTaskIndex, 1);
+            } else {
+                const subTaskIndex = parentSubTask.subTasksOrder.indexOf(subTask.id);
+                parentSubTask.subTasksOrder.splice(subTaskIndex, 1);
+            }
+
+            subTask.isArchived = true;
 
             plan.version.minor++;
 
@@ -1280,7 +1311,8 @@ export class Service {
             title: subTaskRow.title,
             subTasks: subTaskRow.subTasks.map((st: any) => Service.dbSubTaskToSubTask(st)),
             subTasksById: new Map<SubTaskId, SubTask>(),
-            subTasksOrder: subTaskRow.subTasksOrder
+            subTasksOrder: subTaskRow.subTasksOrder,
+            isArchived: subTaskRow.isArchived
         };
 
         for (const subSubTask of subTask.subTasks) {
@@ -1363,7 +1395,8 @@ export class Service {
             parentSubTaskId: subTask.parentSubTaskId,
             title: subTask.title,
             subTasks: subTask.subTasks.map(st => Service.subTaskToDbSubTask(st)),
-            subTasksOrder: subTask.subTasksOrder
+            subTasksOrder: subTask.subTasksOrder,
+            isArchived: subTask.isArchived
         };
     }
 
@@ -1601,11 +1634,13 @@ export class Service {
         return task;
     }
 
-    private static getSubTaskById(plan: Plan, id: SubTaskId): SubTask {
+    private static getSubTaskById(plan: Plan, id: SubTaskId, allowdArchived: boolean = false): SubTask {
         const subTask = plan.subTasksById.get(id);
 
         if (subTask === undefined) {
             throw new CriticalServiceError(`Subtask with id ${id} does not exist`);
+        } else if (subTask.isArchived && !allowdArchived) {
+            throw new ServiceError(`Subtask with id ${id} cannot be operated upon since it is archived`);
         }
 
         return subTask;
@@ -1766,6 +1801,14 @@ export interface UpdateSubTaskRequest {
 }
 
 export interface UpdateSubTaskResponse {
+    plan: Plan;
+}
+
+export interface ArchiveSubTaskRequest {
+    subTaskId: SubTaskId;
+}
+
+export interface ArchiveSubTaskResponse {
     plan: Plan;
 }
 

@@ -124,6 +124,7 @@ export interface SubTask {
     subTasks: SubTask[];
     subTasksById: Map<SubTaskId, SubTask>;
     subTasksOrder: SubTaskId[];
+    isArchived: boolean;
 }
 
 export interface Board {

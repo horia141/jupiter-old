@@ -431,6 +431,19 @@ async function main() {
         });
 
     vorpal
+        .command("plan:archive-subtask <subTaskId>")
+        .description("Archive a given subtask")
+        .action(async function (this: Vorpal, args: Args) {
+            const subTaskId = Number.parseInt(args.subTaskId);
+
+            const req = {
+                subTaskId: subTaskId
+            };
+            const res = await service.archiveSubTask(req);
+            this.log(printPlan(res.plan));
+        });
+
+    vorpal
         .command("schedule:show")
         .description("Displays the current schedule")
         .action(async function (this: Vorpal) {
