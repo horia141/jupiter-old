@@ -416,6 +416,29 @@ async function main() {
         });
 
     vorpal
+        .command("plan:move-subtask <subTaskId>")
+        .description("Move a subtask as a child of another one or changes its position")
+        .option("-t, --toplevel", "Moves goal to the toplevel")
+        .option("-c, --childOf <parentSubTaskId>", "The subtask to nest this one under")
+        .option("-p, --position <position>", "The position to move the subtask to")
+        .types({ string: [ "c", "childOf", "s", "subtaskChildOf", "p", "position" ]})
+        .action(async function (this: Vorpal, args: Args) {
+            const subTaskId = Number.parseInt(args.subTaskId);
+            const moveToTopLevel = args.options.toplevel !== undefined;
+            const parentSubTaskId = args.options.childOf ? Number.parseInt(args.options.childOf) : undefined;
+            const position = args.options.position ? Number.parseInt(args.options.position) : undefined;
+
+            const req = {
+                subTaskId: subTaskId,
+                moveToTopLevel: moveToTopLevel,
+                parentSubTaskId: parentSubTaskId,
+                position: position
+            };
+            const res = await service.moveSubTask(req);
+            this.log(printPlan(res.plan));
+        });
+
+    vorpal
         .command("plan:set-subtask-title <subTaskId> <title...>")
         .description("Change the name of a subtask")
         .action(async function (this: Vorpal, args: Args) {

@@ -805,6 +805,147 @@ export class Service {
         };
     }
 
+    public async moveSubTask(req: MoveSubTaskRequest): Promise<MoveSubTaskResponse> {
+
+        if (!req.moveToTopLevel && req.parentSubTaskId === undefined && req.position === undefined) {
+            throw new ServiceError("You must specify at least one of toplevel, parentSubTaskId or position");
+        } else if (req.moveToTopLevel && req.parentSubTaskId !== undefined) {
+            throw new ServiceError(`Cannot both move to toplevel and a child under ${req.parentSubTaskId}`);
+        }
+
+        const newPlanAndSchedule = await this.dbModifyPlanAndSchedule(planAndSchedule => {
+            const plan = planAndSchedule.plan;
+            const subTask = Service.getSubTaskById(plan, req.subTaskId);
+            const task = Service.getTaskById(plan, subTask.taskId);
+            const parentSubTask = subTask.parentSubTaskId ? Service.getSubTaskById(plan, subTask.parentSubTaskId) : null;
+            Service.getGoalById(plan, task.goalId);
+
+            if (req.moveToTopLevel && req.parentSubTaskId === undefined && parentSubTask !== null) {
+
+                // Move a child subtask to the toplevel.
+
+                subTask.parentSubTaskId = undefined;
+
+                const parentIndex = parentSubTask.subTasks.findIndex(st => st.id === subTask.id);
+                const parentOrdersIndex = parentSubTask.subTasksOrder.indexOf(subTask.id);
+                parentSubTask.subTasks.splice(parentIndex, 1);
+                parentSubTask.subTasksById.delete(subTask.id);
+                parentSubTask.subTasksOrder.splice(parentOrdersIndex, 1);
+
+                task.subTasks.push(subTask);
+                task.subTasksById.set(subTask.id, subTask);
+                if (req.position === undefined) {
+                    task.subTasksOrder.push(subTask.id);
+                } else {
+                    if (req.position < 1 || req.position > task.subTasksOrder.length) {
+                        throw new ServiceError(`Cannot move subtask with id ${subTask.id} to position ${req.position}`);
+                    }
+
+                    task.subTasksOrder.splice(req.position - 1, 0, subTask.id);
+                }
+            } else if (req.moveToTopLevel && req.parentSubTaskId === undefined && parentSubTask === null) {
+
+                // Move a toplevel subtask to the toplevel.
+
+                if (req.position !== undefined) {
+
+                    if (req.position < 1 || req.position > task.subTasksOrder.length) {
+                        throw new ServiceError(`Cannot move subtask with id ${subTask.id} to position ${req.position}`);
+                    }
+
+                    const parentIndex = task.subTasksOrder.indexOf(subTask.id);
+                    task.subTasksOrder.splice(parentIndex, 1);
+                    task.subTasksOrder.splice(req.position - 1, 0, subTask.id);
+                }
+            } else if (!req.moveToTopLevel && req.parentSubTaskId !== undefined && parentSubTask !== null) {
+                // Move a child subtask to be a child of another task.
+
+                const newParentSubTask = Service.getSubTaskById(plan, req.parentSubTaskId);
+
+                if (newParentSubTask.taskId !== parentSubTask.taskId) {
+                    throw new ServiceError(`Cannot move subtask with id ${subTask.id} to a different task non-explicitly`);
+                }
+
+                subTask.parentSubTaskId = req.parentSubTaskId;
+
+                const parentIndex = parentSubTask.subTasks.findIndex(st => st.id === subTask.id);
+                const parentOrdersIndex = parentSubTask.subTasksOrder.indexOf(subTask.id);
+                parentSubTask.subTasks.splice(parentIndex, 1);
+                parentSubTask.subTasksById.delete(subTask.id);
+                parentSubTask.subTasksOrder.splice(parentOrdersIndex, 1);
+
+                newParentSubTask.subTasks.push(subTask);
+                newParentSubTask.subTasksById.set(subTask.id, subTask);
+
+                if (req.position === undefined) {
+                    newParentSubTask.subTasksOrder.push(subTask.id);
+                } else {
+                    if (req.position < 1 || req.position > newParentSubTask.subTasksOrder.length) {
+                        throw new ServiceError(`Cannot move subtask with id ${subTask.id} to position ${req.position}`);
+                    }
+
+                    newParentSubTask.subTasksOrder.splice(req.position - 1, 0, subTask.id);
+                }
+            } else if (!req.moveToTopLevel && req.parentSubTaskId !== undefined && parentSubTask === null) {
+                // Move a toplevel subtask to be a child of another task.
+
+                const newParentSubTask = Service.getSubTaskById(plan, req.parentSubTaskId);
+
+                if (newParentSubTask.taskId !== task.id) {
+                    throw new ServiceError(`Cannot move subtask with id ${subTask.id} to a different task non-explicitly`);
+                }
+
+                subTask.parentSubTaskId = req.parentSubTaskId;
+
+                const parentIndex = task.subTasks.findIndex(st => st.id === subTask.id);
+                const parentOrdersIndex = task.subTasksOrder.indexOf(subTask.id);
+                task.subTasks.splice(parentIndex, 1);
+                task.subTasksOrder.splice(parentOrdersIndex, 1);
+
+                newParentSubTask.subTasks.push(subTask);
+                newParentSubTask.subTasksById.set(subTask.id, subTask);
+
+                if (req.position === undefined) {
+                    newParentSubTask.subTasksOrder.push(subTask.id);
+                } else {
+                    if (req.position < 1 || req.position > newParentSubTask.subTasksOrder.length) {
+                        throw new ServiceError(`Cannot move subtask with id ${subTask.id} to position ${req.position}`);
+                    }
+
+                    newParentSubTask.subTasksOrder.splice(req.position - 1, 0, subTask.id);
+                }
+            } else if (!req.moveToTopLevel && req.parentSubTaskId === undefined && req.position !== undefined && parentSubTask !== null) {
+
+                if (req.position < 1 || req.position > parentSubTask.subTasksOrder.length) {
+                    throw new ServiceError(`Cannot move subtask with id ${subTask.id} to position ${req.position}`);
+                }
+
+                const parentIndex = parentSubTask.subTasksOrder.indexOf(subTask.id);
+                parentSubTask.subTasksOrder.splice(parentIndex, 1);
+                parentSubTask.subTasksOrder.splice(req.position - 1, 0, subTask.id);
+            } else if (!req.moveToTopLevel && req.parentSubTaskId === undefined && req.position !== undefined && parentSubTask === null) {
+
+                if (req.position < 1 || req.position > task.subTasksOrder.length) {
+                    throw new ServiceError(`Cannot move subtask with id ${subTask.id} to position ${req.position}`);
+                }
+
+                const parentIndex = task.subTasksOrder.indexOf(subTask.id);
+                task.subTasksOrder.splice(parentIndex, 1);
+                task.subTasksOrder.splice(req.position - 1, 0, subTask.id);
+            } else {
+                throw new CriticalServiceError("Invalid service path!");
+            }
+
+            planAndSchedule.plan.version.minor++;
+
+            return [WhatToSave.PLAN_AND_SCHEDULE, planAndSchedule];
+        });
+
+        return {
+            plan: newPlanAndSchedule.plan
+        };
+    }
+
     public async updateSubTask(req: UpdateSubTaskRequest): Promise<UpdateSubTaskResponse> {
 
         const newPlanAndSchedule = await this.dbModifyPlanAndSchedule(planAndSchedule => {
@@ -1792,6 +1933,17 @@ export interface CreateSubTaskRequest {
 }
 
 export interface CreateSubTaskResponse {
+    plan: Plan;
+}
+
+export interface MoveSubTaskRequest {
+    subTaskId: SubTaskId;
+    moveToTopLevel?: boolean;
+    parentSubTaskId?: SubTaskId;
+    position?: number;
+}
+
+export interface MoveSubTaskResponse {
     plan: Plan;
 }
 

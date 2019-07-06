@@ -1,5 +1,3 @@
 Commands to add:
-* Move subtask to be a child of a another subtask of of top-level task
-* Add notion of subtask order and commands to shift subtasks around
 * Make move avoid circular paths!
 * Proper handling of subtasks in the schedule!
