@@ -15,7 +15,7 @@ import {
     MetricType,
     Plan,
     Schedule,
-    ScheduledTask,
+    ScheduledTask, SubTask,
     Task,
     TaskPriority
 } from "./service/entities";
@@ -396,6 +396,25 @@ async function main() {
         });
 
     vorpal
+        .command("plan:new-subtask <taskId> <title...>")
+        .description("Add a new subtask to a task")
+        .option("-c, --childOf <parentSubTaskId>", "The subtask of taskId to nest this one under")
+        .types({ string: [ "c", "childOf" ]})
+        .action(async function (this: Vorpal, args: Args) {
+            const taskId = Number.parseInt(args.taskId);
+            const title = args.title.join(" ");
+            const parentSubTaskId = args.options.childOf ? Number.parseInt(args.options.childOf) : undefined;
+
+            const req = {
+                taskId: taskId,
+                title: title,
+                parentSubTaskId: parentSubTaskId
+            };
+            const res = await service.createSubTask(req);
+            this.log(printPlan(res.plan));
+        });
+
+    vorpal
         .command("schedule:show")
         .description("Displays the current schedule")
         .action(async function (this: Vorpal) {
@@ -489,7 +508,42 @@ function printGoal(goal: Goal, indent: number = 0): string {
 
         for (const taskId of goal.tasksOrder) {
             const task = goal.tasksById.get(taskId) as Task;
-            res.push(`${indentStr}    [${task.id}] ${task.title} @${task.deadline ? task.deadline.format("YYYY-MM-DD hh:mm UTC") : ""} ${task.priority === TaskPriority.HIGH ? "(high)" : ""} ${task.repeatSchedule ? task.repeatSchedule : ""}`);
+            res.push(printTask(task, indent));
+
+        }
+    }
+
+    return res.join("\n");
+}
+
+function printTask(task: Task, indent: number): string {
+    const res = [];
+    const indentStr = " ".repeat(indent);
+
+    res.push(`${indentStr}    [${task.id}] ${task.title} @${task.deadline ? task.deadline.format("YYYY-MM-DD hh:mm UTC") : ""} ${task.priority === TaskPriority.HIGH ? "(high)" : ""} ${task.repeatSchedule ? task.repeatSchedule : ""}`);
+
+    if (task.subtasksOrder.length > 0) {
+        res.push(`${indentStr}      subtasks:`);
+
+        for (const subTaskId of task.subtasksOrder) {
+            const subTask = task.subtasksById.get(subTaskId) as SubTask;
+            res.push(printSubTask(subTask, indent + 8));
+        }
+    }
+
+    return res.join("\n");
+}
+
+function printSubTask(subTask: SubTask, indent: number): string {
+    const res = [];
+    const indentStr = " ".repeat(indent);
+
+    res.push(`${indentStr}[${subTask.id}] ${subTask.title}`);
+
+    if (subTask.subtasksOrder.length > 0) {
+        for (const subSubTaskId of subTask.subtasksOrder) {
+            const subSubTask = subTask.subtasksById.get(subSubTaskId) as SubTask;
+            res.push(printSubTask(subSubTask, indent + 2));
         }
     }
 

@@ -87,6 +87,8 @@ export interface Task {
     repeatSchedule?: TaskRepeatSchedule;
     reminderPolicy?: any;
     subtasks: SubTask[];
+    subtasksById: Map<SubTaskId, SubTask>;
+    subtasksOrder: SubTaskId[];
     donePolicy?: any;
     inProgress: boolean;
     isArchived: boolean;
@@ -115,8 +117,12 @@ export function getTaskRepeatSchedule(): Array<TaskRepeatSchedule> {
 
 export interface SubTask {
     id: SubTaskId;
+    taskId: TaskId;
+    parentSubTaskId?: SubTaskId;
     title: string;
     subtasks: SubTask[];
+    subtasksById: Map<SubTaskId, SubTask>;
+    subtasksOrder: SubTaskId[];
 }
 
 export interface Board {

@@ -17,7 +17,7 @@ import {
     Schedule,
     ScheduledTask,
     ScheduledTaskEntry,
-    SubTask,
+    SubTask, SubTaskId,
     Task,
     TaskId,
     TaskPriority,
@@ -111,7 +111,7 @@ export class Service {
             const plan = planAndSchedule.plan;
 
             plan.idSerialHack++;
-            newGoal.id = planAndSchedule.plan.idSerialHack;
+            newGoal.id = plan.idSerialHack;
 
             if (req.parentGoalId === undefined) {
                 plan.goals.push(newGoal);
@@ -550,6 +550,8 @@ export class Service {
             repeatSchedule: req.repeatSchedule,
             reminderPolicy: undefined,
             subtasks: [],
+            subtasksById: new Map<SubTaskId, SubTask>(),
+            subtasksOrder: [],
             donePolicy: undefined,
             inProgress: false,
             isArchived: false
@@ -740,12 +742,58 @@ export class Service {
             const goal = Service.getGoalById(plan, task.goalId, true);
 
             task.isArchived = true;
-            planAndSchedule.plan.version.minor++;
 
             const goalOrderIndex = goal.tasksOrder.indexOf(task.id);
             goal.tasksOrder.splice(goalOrderIndex, 1);
 
-            return [WhatToSave.PLAN_AND_SCHEDULE, planAndSchedule]
+            plan.version.minor++;
+
+            return [WhatToSave.PLAN_AND_SCHEDULE, planAndSchedule];
+        });
+
+        return {
+            plan: newPlanAndSchedule.plan
+        };
+    }
+
+    public async createSubTask(req: CreateSubTaskRequest): Promise<CreateSubTaskResponse> {
+
+        const newSubTask: SubTask = {
+            id: -1,
+            taskId: req.taskId,
+            parentSubTaskId: req.parentSubTaskId,
+            title: req.title,
+            subtasks: [],
+            subtasksById: new Map<SubTaskId, SubTask>(),
+            subtasksOrder: []
+        };
+
+        const newPlanAndSchedule = await this.dbModifyPlanAndSchedule(planAndSchedule => {
+            const plan = planAndSchedule.plan;
+            const task = Service.getTaskById(plan, req.taskId);
+            Service.getGoalById(plan, task.goalId);
+
+            plan.idSerialHack++;
+            newSubTask.id = plan.idSerialHack;
+
+            if (req.parentSubTaskId === undefined) {
+                task.subtasks.push(newSubTask);
+                task.subtasksById.set(newSubTask.id, newSubTask);
+                task.subtasksOrder.push(newSubTask.id);
+            } else {
+                const parentSubTask = task.subtasksById.get(req.parentSubTaskId);
+                if (parentSubTask === undefined) {
+                    throw new ServiceError(`Cannot find parent subtask with id ${req.parentSubTaskId}`);
+                }
+                parentSubTask.subtasks.push(newSubTask);
+                parentSubTask.subtasksById.set(newSubTask.id, newSubTask);
+                parentSubTask.subtasksOrder.push(newSubTask.id);
+                task.subtasksById.set(newSubTask.id, newSubTask);
+            }
+
+            plan.version.minor++;
+
+            return [WhatToSave.PLAN_AND_SCHEDULE, planAndSchedule];
         });
 
         return {
@@ -1164,7 +1212,14 @@ export class Service {
     }
 
     private static dbTaskToTask(taskRow: any): Task {
-        return {
+        function populateIndicies(task: Task, subTask: SubTask) {
+            task.subtasksById.set(subTask.id, subTask);
+            for (const subSubTask of subTask.subtasks) {
+                populateIndicies(task, subSubTask);
+            }
+        }
+
+        const task = {
             id: taskRow.id,
             goalId: taskRow.goalId,
             title: taskRow.title,
@@ -1174,18 +1229,36 @@ export class Service {
             repeatSchedule: taskRow.repeatSchedule,
             reminderPolicy: taskRow.reminderPolicy,
             subtasks: taskRow.subtasks.map((st: any) => Service.dbSubTaskToSubTask(st)),
+            subtasksById: new Map<SubTaskId, SubTask>(),
+            subtasksOrder: taskRow.subtasksOrder,
             donePolicy: taskRow.donePolicy,
             inProgress: taskRow.inProgress,
             isArchived: taskRow.isArchived
         };
+
+        for (const subTask of task.subtasks) {
+            populateIndicies(task, subTask);
+        }
+
+        return task;
     }
 
     private static dbSubTaskToSubTask(subTaskRow: any): SubTask {
-        return {
+        const subTask = {
             id: subTaskRow.id,
+            taskId: subTaskRow.taskId,
+            parentSubTaskId: subTaskRow.parentSubTaskId,
             title: subTaskRow.title,
-            subtasks: subTaskRow.subtasks.map((st: any) => Service.dbSubTaskToSubTask(st))
+            subtasks: subTaskRow.subtasks.map((st: any) => Service.dbSubTaskToSubTask(st)),
+            subtasksById: new Map<SubTaskId, SubTask>(),
+            subtasksOrder: subTaskRow.subtasksOrder
         };
+
+        for (const subSubTask of subTask.subtasks) {
+            subTask.subtasksById.set(subSubTask.id, subSubTask);
+        }
+
+        return subTask;
     }
 
     private static dbBoardToBoard(boardRow: any): Board {
@@ -1247,6 +1320,7 @@ export class Service {
             repeatSchedule: task.repeatSchedule,
             reminderPolicy: task.reminderPolicy,
             subtasks: task.subtasks.map(st => Service.subTaskToDbSubTask(st)),
+            subtasksOrder: task.subtasksOrder,
             donePolicy: task.donePolicy,
             inProgress: task.inProgress,
             isArchived: task.isArchived
@@ -1256,8 +1330,11 @@ export class Service {
     private static subTaskToDbSubTask(subTask: SubTask): any {
         return {
             id: subTask.id,
+            taskId: subTask.taskId,
+            parentSubTaskId: subTask.parentSubTaskId,
             title: subTask.title,
-            subtasks: subTask.subtasks.map(st => Service.subTaskToDbSubTask(st))
+            subtasks: subTask.subtasks.map(st => Service.subTaskToDbSubTask(st)),
+            subtasksOrder: subTask.subtasksOrder
         };
     }
 
@@ -1630,6 +1707,16 @@ export interface ArchiveTaskRequest {
 }
 
 export interface ArchiveTaskResponse {
+    plan: Plan;
+}
+
+export interface CreateSubTaskRequest {
+    taskId: TaskId;
+    title: string;
+    parentSubTaskId?: SubTaskId;
+}
+
+export interface CreateSubTaskResponse {
     plan: Plan;
 }
 
