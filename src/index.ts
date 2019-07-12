@@ -166,19 +166,20 @@ async function main() {
         });
 
     vorpal
-        .command("plan:new-metric <goalId> <title...>")
-        .description("Adds a new metric to a goal")
+        .command("plan:new-metric <title...>")
+        .description("Adds a new metric")
+        .option("-g, --goal <goalId>", "The goal to add the metric to. Default to the inbox one")
         .option("-d, --description <desc>", "Add a description to the goal")
         .option("--counter", "Create a counter metric instead of a gauge one")
         .action(async function (this: Vorpal, args: Args) {
+            const goalId = args.options.goal !== undefined ? Number.parseInt(args.options.goal) : undefined;
             const title = args.title.join(" ");
             const description = args.options.description;
-            const goalId = Number.parseInt(args.goalId);
             const isCounter = args.options.counter !== undefined;
             const req = {
+                goalId: goalId,
                 title: title,
                 description: description,
-                goalId: goalId,
                 isCounter: isCounter
             };
             const res = await service.createMetric(req);
@@ -247,14 +248,15 @@ async function main() {
         });
 
     vorpal
-        .command("plan:new-task <goalId> <title...>")
-        .description("Add a new task to a goal")
+        .command("plan:new-task <title...>")
+        .description("Add a new task")
+        .option("-g, --goal <goalId>", "The goal to add the task to. Default to the inbox one")
         .option("-d, --description <desc>", "Add a description to the goal")
         .option("-p, --priority <priority>", "Assigns a priority to the task", getTaskPriority())
         .option("-d, --deadline <deadlineTime>", "Specifies a deadline in YYYY-MM-DD HH:mm")
         .option("-r, --repeatSchedule <schedule>", "Makes this task repeat according to a schedule", getTaskRepeatSchedule())
         .action(async function (this: Vorpal, args: Args) {
-            const goalId = Number.parseInt(args.goalId);
+            const goalId = args.options.goal !== undefined ? Number.parseInt(args.options.goal) : undefined;
             const title = args.title.join(" ");
             const description = args.options.description;
             const priority = args.options.priority !== undefined ? (args.options.priority as TaskPriority) : TaskPriority.NORMAL;

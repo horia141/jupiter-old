@@ -24,6 +24,7 @@ export interface Plan {
     goals: Goal[];
     goalsOrder: GoalId[];
     idSerialHack: number;
+    inboxGoalId: number;
     goalsById: Map<GoalId, Goal>;
     metricsById: Map<MetricId, Metric>;
     tasksById: Map<TaskId, Task>;

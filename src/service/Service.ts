@@ -389,7 +389,7 @@ export class Service {
 
         const newMetric: Metric = {
             id: -1,
-            goalId: req.goalId,
+            goalId: -1,
             title: req.title,
             description: req.description,
             type: req.isCounter ? MetricType.COUNTER : MetricType.GAUGE,
@@ -405,10 +405,11 @@ export class Service {
         const newPlanAndSchedule = await this.dbModifyPlanAndSchedule(planAndSchedule => {
             const plan = planAndSchedule.plan;
             const schedule = planAndSchedule.schedule;
-            const goal = Service.getGoalById(plan, req.goalId);
+            const goal = req.goalId ? Service.getGoalById(plan, req.goalId) : Service.getGoalById(plan, plan.inboxGoalId);
 
             plan.idSerialHack++;
             newMetric.id = plan.idSerialHack;
+            newMetric.goalId = goal.id;
 
             schedule.idSerialHack++;
             newCollectedMetric.id = schedule.idSerialHack;
@@ -543,7 +544,7 @@ export class Service {
 
         const newTask: Task = {
             id: -1,
-            goalId: req.goalId,
+            goalId: -1,
             title: req.title,
             description: req.description,
             priority: req.priority,
@@ -572,10 +573,11 @@ export class Service {
         const newPlanAndSchedule = await this.dbModifyPlanAndSchedule(planAndSchedule => {
             const plan = planAndSchedule.plan;
             const schedule = planAndSchedule.schedule;
-            const goal = Service.getGoalById(plan, req.goalId);
+            const goal = req.goalId ? Service.getGoalById(plan, req.goalId) : Service.getGoalById(plan, plan.inboxGoalId);
 
             plan.idSerialHack++;
             newTask.id = plan.idSerialHack;
+            newTask.goalId = goal.id;
 
             schedule.idSerialHack++;
             newScheduledTask.id = schedule.idSerialHack;
@@ -1343,6 +1345,7 @@ export class Service {
             goals: dbPlan.goals.map((g: any) => Service.dbGoalToGoal(g)),
             goalsOrder: dbPlan.goalsOrder,
             idSerialHack: dbPlan.idSerialHack,
+            inboxGoalId: dbPlan.inboxGoalId,
             goalsById: new Map<GoalId, Goal>(),
             metricsById: new Map<MetricId, Metric>(),
             tasksById: new Map<TaskId, Task>(),
@@ -1475,7 +1478,8 @@ export class Service {
             version: plan.version,
             goals: plan.goals.map(g => Service.goalToDbGoal(g)),
             goalsOrder: plan.goalsOrder,
-            idSerialHack: plan.idSerialHack
+            idSerialHack: plan.idSerialHack,
+            inboxGoalId: plan.inboxGoalId
         };
     }
 
@@ -1663,6 +1667,7 @@ export class Service {
                 }],
                 goalsOrder: [1],
                 idSerialHack: 1,
+                inboxGoalId: 1,
                 goalsById: new Map<GoalId, Goal>(),
                 metricsById: new Map<MetricId, Metric>(),
                 tasksById: new Map<TaskId, Task>(),
@@ -1842,7 +1847,7 @@ export interface ArchiveGoalResponse {
 }
 
 export interface CreateMetricRequest {
-    goalId: GoalId;
+    goalId?: GoalId;
     title: string;
     description?: string;
     isCounter: boolean;
@@ -1881,7 +1886,7 @@ export interface ArchiveMetricResponse {
 }
 
 export interface CreateTaskRequest {
-    goalId: GoalId;
+    goalId?: GoalId;
     title: string;
     description?: string;
     priority: TaskPriority;
