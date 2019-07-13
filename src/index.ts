@@ -355,6 +355,24 @@ async function main() {
         });
 
     vorpal
+        .command("plan:set-task-urgency <taskId> <urgency>")
+        .description("Change the urgency of a given task")
+        .action(async function (this: Vorpal, args: Args) {
+            const taskId = Number.parseInt(args.taskId);
+            const urgency = args.urgency as TaskUrgency;
+            if (getTaskUrgency().indexOf(urgency) === -1) {
+                throw new Error(`Invalid task urgency ${urgency}`);
+            }
+
+            const req = {
+                taskId: taskId,
+                urgency: urgency
+            };
+            const res = await service.updateTask(req);
+            this.log(printPlan(res.plan));
+        });
+
+    vorpal
         .command("plan:set-task-deadline <taskId> [deadline]")
         .description("Change the deadline of a given task")
         .action(async function (this: Vorpal, args: Args) {

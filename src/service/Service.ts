@@ -715,6 +715,9 @@ export class Service {
             if (req.priority !== undefined) {
                 task.priority = req.priority;
             }
+            if (req.urgency !== undefined) {
+                task.urgency = req.urgency;
+            }
             if (req.deadline !== undefined) {
                 task.deadline = req.deadline;
             } else if (req.clearDeadline) {
@@ -1959,6 +1962,7 @@ export interface UpdateTaskRequest {
     title?: string;
     description?: string;
     priority?: TaskPriority;
+    urgency?: TaskUrgency;
     deadline?: moment.Moment;
     clearDeadline?: boolean;
     repeatSchedule?: TaskRepeatSchedule;
