@@ -208,6 +208,17 @@ export class Service {
 
                 const oldParentGoal = Service.getGoalById(plan, goal.parentGoalId, true);
                 const parentGoal = Service.getGoalById(plan, req.parentGoalId);
+
+                // Check that the new parent goal isn't a descendant of the current goal.
+                // This is bad behaviour which we can't allow.
+                let parentsWalkerGoal = parentGoal;
+                while (parentsWalkerGoal.parentGoalId !== undefined) {
+                    if (parentsWalkerGoal.parentGoalId === goal.id) {
+                        throw new ServiceError(`Cannot move goal with id ${goal.id} to one of its descendants`);
+                    }
+                    parentsWalkerGoal = Service.getGoalById(plan, parentsWalkerGoal.parentGoalId);
+                }
+
                 goal.parentGoalId = req.parentGoalId;
                 const subgoalsIndex = oldParentGoal.subgoals.findIndex(g => g.id === goal.id);
                 const subgoalsOrderIndex = oldParentGoal.subgoalsOrder.indexOf(goal.id);
@@ -232,9 +243,18 @@ export class Service {
             } else if (!req.moveToToplevel && req.parentGoalId !== undefined && goal.parentGoalId === undefined) {
                 // Move a toplevel goal as a child of another goal
 
-                console.log("here");
-
                 const parentGoal = Service.getGoalById(plan, req.parentGoalId);
+
+                // Check that the new parent goal isn't a descendant of the current goal.
+                // This is bad behaviour which we can't allow.
+                let parentsWalkerGoal = parentGoal;
+                while (parentsWalkerGoal.parentGoalId !== undefined) {
+                    if (parentsWalkerGoal.parentGoalId === goal.id) {
+                        throw new ServiceError(`Cannot move goal with id ${goal.id} to one of its descendants`);
+                    }
+                    parentsWalkerGoal = Service.getGoalById(plan, parentsWalkerGoal.parentGoalId);
+                }
+
                 goal.parentGoalId = req.parentGoalId;
                 goal.range = Service.limitRangeToParentRange(goal.range, parentGoal.range);
                 goal.deadline = Service.deadlineFromRange(rightNow, goal.range);
@@ -868,6 +888,15 @@ export class Service {
                     throw new ServiceError(`Cannot move subtask with id ${subTask.id} to a different task non-explicitly`);
                 }
 
+                // Make sure we're not moving a subtask to one of its descendants.
+                let parentSubtaskWalker = newParentSubTask;
+                while (parentSubtaskWalker.parentSubTaskId !== undefined) {
+                    if (parentSubtaskWalker.parentSubTaskId === subTask.id) {
+                        throw new ServiceError(`Cannot move subtask with id ${subTask.id} to one of its descendants`);
+                    }
+                    parentSubtaskWalker = Service.getSubTaskById(plan, parentSubtaskWalker.parentSubTaskId);
+                }
+
                 subTask.parentSubTaskId = req.parentSubTaskId;
 
                 const parentIndex = parentSubTask.subTasks.findIndex(st => st.id === subTask.id);
@@ -897,6 +926,15 @@ export class Service {
                     throw new ServiceError(`Cannot move subtask with id ${subTask.id} to a different task non-explicitly`);
                 }
 
+                // Make sure we're not moving a subtask to one of its descendants.
+                let parentSubtaskWalker = newParentSubTask;
+                while (parentSubtaskWalker.parentSubTaskId !== undefined) {
+                    if (parentSubtaskWalker.parentSubTaskId === subTask.id) {
+                        throw new ServiceError(`Cannot move subtask with id ${subTask.id} to one of its descendants`);
+                    }
+                    parentSubtaskWalker = Service.getSubTaskById(plan, parentSubtaskWalker.parentSubTaskId);
+                }
+
                 subTask.parentSubTaskId = req.parentSubTaskId;
 
                 const parentIndex = task.subTasks.findIndex(st => st.id === subTask.id);
@@ -918,6 +956,8 @@ export class Service {
                 }
             } else if (!req.moveToTopLevel && req.parentSubTaskId === undefined && req.position !== undefined && parentSubTask !== null) {
 
+                // Move a child subtask to a different position under its parent.
+
                 if (req.position < 1 || req.position > parentSubTask.subTasksOrder.length) {
                     throw new ServiceError(`Cannot move subtask with id ${subTask.id} to position ${req.position}`);
                 }
@@ -926,6 +966,8 @@ export class Service {
                 parentSubTask.subTasksOrder.splice(parentIndex, 1);
                 parentSubTask.subTasksOrder.splice(req.position - 1, 0, subTask.id);
             } else if (!req.moveToTopLevel && req.parentSubTaskId === undefined && req.position !== undefined && parentSubTask === null) {
+
+                // Move a toplevel subtask to a different position.
 
                 if (req.position < 1 || req.position > task.subTasksOrder.length) {
                     throw new ServiceError(`Cannot move subtask with id ${subTask.id} to position ${req.position}`);
