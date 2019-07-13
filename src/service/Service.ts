@@ -1624,7 +1624,7 @@ export class Service {
             scheduledTasks: dbSchedule.scheduledTasks.map((st: any) => {
                 return {
                     id: st.id,
-                    taskId: st.metricId,
+                    taskId: st.taskId,
                     entries: st.entries.map((ste: any) => {
                         return {
                             id: ste.id,

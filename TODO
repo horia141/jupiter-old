@@ -1,2 +1,4 @@
 Commands to add:
-* Proper handling of subtasks in the schedule!
+* Complex notion of doneness: boolean, subtask, counter in a range, gauge in a range
+* Notion of in progress at the level of a scheduled task
+* Include urgency in task scheduling

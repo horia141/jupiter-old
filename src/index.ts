@@ -630,7 +630,7 @@ function printSubTask(subTask: SubTask, indent: number): string {
 
 function printSchedule(schedule: Schedule, plan: Plan): string {
     const res = [];
-
+    
     res.push(`id=${schedule.id}`);
 
     if (schedule.collectedMetrics.length > 0) {
