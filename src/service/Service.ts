@@ -21,7 +21,7 @@ import {
     Task,
     TaskId,
     TaskPriority,
-    TaskRepeatSchedule,
+    TaskRepeatSchedule, TaskUrgency,
     UserId
 } from "./entities";
 
@@ -568,6 +568,7 @@ export class Service {
             title: req.title,
             description: req.description,
             priority: req.priority,
+            urgency: req.urgency,
             deadline: req.deadline,
             repeatSchedule: req.repeatSchedule,
             reminderPolicy: undefined,
@@ -1471,6 +1472,7 @@ export class Service {
             title: taskRow.title,
             description: taskRow.description,
             priority: taskRow.priority,
+            urgency: taskRow.urgency,
             deadline: taskRow.deadline ? moment.unix(taskRow.deadline).utc() : undefined,
             repeatSchedule: taskRow.repeatSchedule,
             reminderPolicy: taskRow.reminderPolicy,
@@ -1564,6 +1566,7 @@ export class Service {
             title: task.title,
             description: task.description,
             priority: task.priority,
+            urgency: task.urgency,
             deadline: task.deadline ? task.deadline.unix() : undefined,
             repeatSchedule: task.repeatSchedule,
             reminderPolicy: task.reminderPolicy,
@@ -1932,6 +1935,7 @@ export interface CreateTaskRequest {
     title: string;
     description?: string;
     priority: TaskPriority;
+    urgency: TaskUrgency;
     deadline?: moment.Moment,
     repeatSchedule?: TaskRepeatSchedule;
 }

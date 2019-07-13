@@ -85,6 +85,7 @@ export interface Task {
     title: string;
     description?: string;
     priority: TaskPriority;
+    urgency: TaskUrgency;
     deadline?: moment.Moment;
     repeatSchedule?: TaskRepeatSchedule;
     reminderPolicy?: any;
@@ -103,6 +104,15 @@ export enum TaskPriority {
 
 export function getTaskPriority(): Array<TaskPriority> {
     return [TaskPriority.NORMAL, TaskPriority.HIGH];
+}
+
+export enum TaskUrgency {
+    MUST_DO = "must-do",
+    NICE_TO_DO = "nice-to-do"
+}
+
+export function getTaskUrgency(): Array<TaskUrgency> {
+    return [TaskUrgency.MUST_DO, TaskUrgency.NICE_TO_DO];
 }
 
 export enum TaskRepeatSchedule {

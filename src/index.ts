@@ -9,15 +9,18 @@ import {
     getGoalRange,
     getTaskPriority,
     getTaskRepeatSchedule,
+    getTaskUrgency,
     Goal,
     GoalRange,
     Metric,
     MetricType,
     Plan,
     Schedule,
-    ScheduledTask, SubTask,
+    ScheduledTask,
+    SubTask,
     Task,
-    TaskPriority
+    TaskPriority,
+    TaskUrgency
 } from "./service/entities";
 
 async function main() {
@@ -253,6 +256,7 @@ async function main() {
         .option("-g, --goal <goalId>", "The goal to add the task to. Default to the inbox one")
         .option("-d, --description <desc>", "Add a description to the goal")
         .option("-p, --priority <priority>", "Assigns a priority to the task", getTaskPriority())
+        .option("-u, --urgency <urgency>", "Assigns an urgency to the task", getTaskUrgency())
         .option("-d, --deadline <deadlineTime>", "Specifies a deadline in YYYY-MM-DD HH:mm")
         .option("-r, --repeatSchedule <schedule>", "Makes this task repeat according to a schedule", getTaskRepeatSchedule())
         .action(async function (this: Vorpal, args: Args) {
@@ -260,6 +264,7 @@ async function main() {
             const title = args.title.join(" ");
             const description = args.options.description;
             const priority = args.options.priority !== undefined ? (args.options.priority as TaskPriority) : TaskPriority.NORMAL;
+            const urgency = args.options.urgency !== undefined ? (args.options.urgency as TaskUrgency) : TaskUrgency.NICE_TO_DO;
             const deadline = args.options.deadline !== undefined ? moment.utc(args.options.deadline) : undefined;
             const repeatSchedule = args.options.repeatSchedule;
             if (getTaskPriority().indexOf(priority) === -1) {
@@ -274,6 +279,7 @@ async function main() {
                 title: title,
                 description: description,
                 priority: priority,
+                urgency: urgency,
                 deadline: deadline,
                 repeatSchedule: repeatSchedule
             };
@@ -574,7 +580,7 @@ function printTask(task: Task, indent: number): string {
     const res = [];
     const indentStr = " ".repeat(indent);
 
-    res.push(`${indentStr}    [${task.id}] ${task.title} @${task.deadline ? task.deadline.format("YYYY-MM-DD hh:mm UTC") : ""} ${task.priority === TaskPriority.HIGH ? "(high)" : ""} ${task.repeatSchedule ? task.repeatSchedule : ""}`);
+    res.push(`${indentStr}    [${task.id}] ${task.title} @${task.deadline ? task.deadline.format("YYYY-MM-DD hh:mm UTC") : ""} ${task.priority === TaskPriority.HIGH ? "(high)" : ""} ${task.urgency === TaskUrgency.MUST_DO ? "Must" : "Nice"} ${task.repeatSchedule ? task.repeatSchedule : ""}`);
 
     if (task.subTasksOrder.length > 0) {
         res.push(`${indentStr}      subtasks:`);
