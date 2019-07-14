@@ -1,4 +1,11 @@
 Commands to add:
+* Users are needed!
+  * Database representation for them!
+  * User as a grouper of plan, schedule, vacations, boards etc. Instead of getPlanAndSchedule we have getUser!
+  * Commands to register and login as a user!
+  * Commands to remove accounts!
 * Complex notion of doneness: boolean, subtask, counter in a range, gauge in a range
 * Notion of in progress at the level of a scheduled task
 * Include urgency in task scheduling
+* Change urgency to critical and normal!
+* Add notion of suspending goals and tasks!

@@ -98,8 +98,8 @@ export interface Task {
 }
 
 export enum TaskPriority {
-    NORMAL = "normal",
-    HIGH = "high"
+    HIGH = "high",
+    NORMAL = "normal"
 }
 
 export function getTaskPriority(): Array<TaskPriority> {
@@ -107,12 +107,12 @@ export function getTaskPriority(): Array<TaskPriority> {
 }
 
 export enum TaskUrgency {
-    MUST_DO = "must-do",
-    NICE_TO_DO = "nice-to-do"
+    CRITICAL = "critical",
+    REGULAR = "regular"
 }
 
 export function getTaskUrgency(): Array<TaskUrgency> {
-    return [TaskUrgency.MUST_DO, TaskUrgency.NICE_TO_DO];
+    return [TaskUrgency.CRITICAL, TaskUrgency.REGULAR];
 }
 
 export enum TaskRepeatSchedule {
