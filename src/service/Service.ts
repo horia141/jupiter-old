@@ -21,7 +21,7 @@ import {
     Task,
     TaskId,
     TaskPriority,
-    TaskRepeatSchedule, TaskUrgency,
+    TaskRepeatSchedule, TaskUrgency, User,
     UserId
 } from "./entities";
 
@@ -46,12 +46,18 @@ export class Service {
 
     private static readonly DEFAULT_USER_ID = 1;
 
+    private static readonly USER_TABLE = "core.users";
+    private static readonly USER_FIELDS = [
+        "id",
+        "user_json"
+    ];
+
     private static readonly PLAN_TABLE = "core.plans";
     private static readonly PLAN_FIELDS = [
         "id",
         "version_major",
         "version_minor",
-        "plan"
+        "plan_json"
     ];
 
     private static readonly SCHEDULE_TABLE = "core.schedules";
@@ -59,7 +65,7 @@ export class Service {
         "id",
         "version_major",
         "version_minor",
-        "schedule"
+        "schedule_json"
     ];
 
     public constructor(
@@ -67,9 +73,11 @@ export class Service {
     }
 
     public async init(): Promise<void> {
-        await this.dbCreatePlanIfDoesNotExist();
+        await this.dbCreateFullUserIfDoesNotExist();
         setInterval(this.updateScheduleWithRepeatingTasks.bind(this), Service.REPEATING_TASKS_INTERVAL.asMilliseconds());
     }
+
+    // Plans
 
     public async getLatestPlan(): Promise<GetLatestPlanResponse> {
         const plan = await this.dbGetLatestPlan(this.conn, Service.DEFAULT_USER_ID);
@@ -78,8 +86,6 @@ export class Service {
             plan: plan
         };
     }
-
-    // Plans
 
     public async createGoal(req: CreateGoalRequest): Promise<CreateGoalResponse> {
 
@@ -107,8 +113,8 @@ export class Service {
             isArchived: false
         };
 
-        const newPlanAndSchedule = await this.dbModifyPlanAndSchedule(planAndSchedule => {
-            const plan = planAndSchedule.plan;
+        const newFullUser = await this.dbModifyFullUser(fullUser => {
+            const plan = fullUser.plan;
 
             plan.idSerialHack++;
             newGoal.id = plan.idSerialHack;
@@ -128,11 +134,11 @@ export class Service {
             plan.version.minor++;
             plan.goalsById.set(newGoal.id, newGoal);
 
-            return [WhatToSave.PLAN_AND_SCHEDULE, planAndSchedule];
+            return [WhatToSave.PLAN_AND_SCHEDULE, fullUser];
         });
 
         return {
-            plan: newPlanAndSchedule.plan
+            plan: newFullUser.plan
         };
     }
 
@@ -146,8 +152,8 @@ export class Service {
             throw new ServiceError(`Cannot both move to toplevel and a child under ${req.parentGoalId}`);
         }
 
-        const newPlanAndSchedule = await this.dbModifyPlanAndSchedule(planAndSchedule => {
-            const plan = planAndSchedule.plan;
+        const newFullUser = await this.dbModifyFullUser(fullUser => {
+            const plan = fullUser.plan;
             const goal = Service.getGoalById(plan, req.goalId, true);
 
             if (goal.isSystemGoal) {
@@ -303,13 +309,13 @@ export class Service {
                 throw new CriticalServiceError("Invalid service path!");
             }
 
-            planAndSchedule.plan.version.minor++;
+            fullUser.plan.version.minor++;
 
-            return [WhatToSave.PLAN_AND_SCHEDULE, planAndSchedule];
+            return [WhatToSave.PLAN_AND_SCHEDULE, fullUser];
         });
 
         return {
-            plan: newPlanAndSchedule.plan
+            plan: newFullUser.plan
         };
     }
 
@@ -317,8 +323,8 @@ export class Service {
 
         const rightNow = moment.utc();
 
-        const newPlanAndSchedule = await this.dbModifyPlanAndSchedule(planAndSchedule => {
-            const goal = Service.getGoalById(planAndSchedule.plan, req.goalId, true);
+        const newFullUser = await this.dbModifyFullUser(fullUser => {
+            const goal = Service.getGoalById(fullUser.plan, req.goalId, true);
 
             if (goal.isSystemGoal) {
                 throw new ServiceError(`Cannot update system goal with id ${goal.id}`);
@@ -334,20 +340,20 @@ export class Service {
                 goal.range = req.range;
                 goal.deadline = Service.deadlineFromRange(rightNow, req.range);
             }
-            planAndSchedule.plan.version.minor++;
+            fullUser.plan.version.minor++;
 
-            return [WhatToSave.PLAN_AND_SCHEDULE, planAndSchedule];
+            return [WhatToSave.PLAN_AND_SCHEDULE, fullUser];
         });
 
         return {
-            plan: newPlanAndSchedule.plan
+            plan: newFullUser.plan
         };
     }
 
     public async markGoalAsDone(req: MarkGoalAsDoneRequest): Promise<MarkGoalAsDoneResponse> {
 
-        const newPlanAndSchedule = await this.dbModifyPlanAndSchedule(planAndSchedule => {
-            const plan = planAndSchedule.plan;
+        const newFullUser = await this.dbModifyFullUser(fullUser => {
+            const plan = fullUser.plan;
             const goal = Service.getGoalById(plan, req.goalId);
             const parentGoal = goal.parentGoalId ? Service.getGoalById(plan, goal.parentGoalId) : null;
 
@@ -366,18 +372,18 @@ export class Service {
             goal.isDone = true;
             plan.version.minor++;
 
-            return [WhatToSave.PLAN_AND_SCHEDULE, planAndSchedule];
+            return [WhatToSave.PLAN_AND_SCHEDULE, fullUser];
         });
 
         return {
-            plan: newPlanAndSchedule.plan
+            plan: newFullUser.plan
         };
     }
 
     public async archiveGoal(req: ArchiveGoalRequest): Promise<ArchiveGoalResponse> {
 
-        const newPlanAndSchedule = await this.dbModifyPlanAndSchedule(planAndSchedule => {
-            const plan = planAndSchedule.plan;
+        const newFullUser = await this.dbModifyFullUser(fullUser => {
+            const plan = fullUser.plan;
             const goal = Service.getGoalById(plan, req.goalId, false, true);
             const parentGoal = goal.parentGoalId ? Service.getGoalById(plan, goal.parentGoalId) : null;
 
@@ -397,11 +403,11 @@ export class Service {
 
             plan.version.minor++;
 
-            return [WhatToSave.PLAN_AND_SCHEDULE, planAndSchedule];
+            return [WhatToSave.PLAN_AND_SCHEDULE, fullUser];
         });
 
         return {
-            plan: newPlanAndSchedule.plan
+            plan: newFullUser.plan
         };
     }
 
@@ -422,9 +428,9 @@ export class Service {
             entries: []
         };
 
-        const newPlanAndSchedule = await this.dbModifyPlanAndSchedule(planAndSchedule => {
-            const plan = planAndSchedule.plan;
-            const schedule = planAndSchedule.schedule;
+        const newFullUser = await this.dbModifyFullUser(fullUser => {
+            const plan = fullUser.plan;
+            const schedule = fullUser.schedule;
             const goal = req.goalId ? Service.getGoalById(plan, req.goalId) : Service.getGoalById(plan, plan.inboxGoalId);
 
             plan.idSerialHack++;
@@ -447,11 +453,11 @@ export class Service {
             plan.version.minor++;
             schedule.version.minor++;
 
-            return [WhatToSave.PLAN_AND_SCHEDULE, planAndSchedule];
+            return [WhatToSave.PLAN_AND_SCHEDULE, fullUser];
         });
 
         return {
-            plan: newPlanAndSchedule.plan
+            plan: newFullUser.plan
         };
     }
 
@@ -461,8 +467,8 @@ export class Service {
             throw new ServiceError("You must specify at least one of goalId or position");
         }
 
-        const newPlanAndSchedule = await this.dbModifyPlanAndSchedule(planAndSchedule => {
-            const plan = planAndSchedule.plan;
+        const newFullUser = await this.dbModifyFullUser(fullUser => {
+            const plan = fullUser.plan;
             const metric = Service.getMetricById(plan, req.metricId);
 
             if (req.goalId !== undefined) {
@@ -501,20 +507,20 @@ export class Service {
                 throw new CriticalServiceError("Invalid service path!");
             }
 
-            planAndSchedule.plan.version.minor++;
+            fullUser.plan.version.minor++;
 
-            return [WhatToSave.PLAN_AND_SCHEDULE, planAndSchedule];
+            return [WhatToSave.PLAN_AND_SCHEDULE, fullUser];
         });
 
         return {
-            plan: newPlanAndSchedule.plan
+            plan: newFullUser.plan
         };
     }
 
     public async updateMetric(req: UpdateMetricRequest): Promise<UpdateMetricResponse> {
 
-        const newPlanAndSchedule = await this.dbModifyPlanAndSchedule(planAndSchedule => {
-            const plan = planAndSchedule.plan;
+        const newFullUser = await this.dbModifyFullUser(fullUser => {
+            const plan = fullUser.plan;
             const metric = Service.getMetricById(plan, req.metricId);
 
             Service.getGoalById(plan, metric.goalId, true);
@@ -525,32 +531,32 @@ export class Service {
             if (req.description !== undefined) {
                 metric.description = req.description;
             }
-            planAndSchedule.plan.version.minor++;
+            fullUser.plan.version.minor++;
 
-            return [WhatToSave.PLAN_AND_SCHEDULE, planAndSchedule];
+            return [WhatToSave.PLAN_AND_SCHEDULE, fullUser];
         });
 
         return {
-            plan: newPlanAndSchedule.plan
+            plan: newFullUser.plan
         };
     }
 
     public async archiveMetric(req: ArchiveMetricRequest): Promise<ArchiveMetricResponse> {
 
-        const newPlanAndSchedule = await this.dbModifyPlanAndSchedule(planAndSchedule => {
-            const plan = planAndSchedule.plan;
+        const newFullUser = await this.dbModifyFullUser(fullUser => {
+            const plan = fullUser.plan;
             const metric = Service.getMetricById(plan, req.metricId);
 
             Service.getGoalById(plan, metric.goalId, true);
 
             metric.isArchived = true;
-            planAndSchedule.plan.version.minor++;
+            fullUser.plan.version.minor++;
 
-            return [WhatToSave.PLAN_AND_SCHEDULE, planAndSchedule];
+            return [WhatToSave.PLAN_AND_SCHEDULE, fullUser];
         });
 
         return {
-            plan: newPlanAndSchedule.plan
+            plan: newFullUser.plan
         };
     }
 
@@ -591,9 +597,9 @@ export class Service {
             }]
         };
 
-        const newPlanAndSchedule = await this.dbModifyPlanAndSchedule(planAndSchedule => {
-            const plan = planAndSchedule.plan;
-            const schedule = planAndSchedule.schedule;
+        const newFullUser = await this.dbModifyFullUser(fullUser => {
+            const plan = fullUser.plan;
+            const schedule = fullUser.schedule;
             const goal = req.goalId ? Service.getGoalById(plan, req.goalId) : Service.getGoalById(plan, plan.inboxGoalId);
 
             plan.idSerialHack++;
@@ -619,11 +625,11 @@ export class Service {
             plan.version.minor++;
             schedule.version.minor++;
 
-            return [WhatToSave.PLAN_AND_SCHEDULE, planAndSchedule];
+            return [WhatToSave.PLAN_AND_SCHEDULE, fullUser];
         });
 
         return {
-            plan: newPlanAndSchedule.plan
+            plan: newFullUser.plan
         };
     }
 
@@ -633,8 +639,8 @@ export class Service {
             throw new ServiceError("You must specify at least one of goalId or position");
         }
 
-        const newPlanAndSchedule = await this.dbModifyPlanAndSchedule(planAndSchedule => {
-            const plan = planAndSchedule.plan;
+        const newFullUser = await this.dbModifyFullUser(fullUser => {
+            const plan = fullUser.plan;
             const task = Service.getTaskById(plan, req.taskId);
 
             if (req.goalId !== undefined) {
@@ -673,13 +679,13 @@ export class Service {
                 throw new CriticalServiceError("Invalid service path!");
             }
 
-            planAndSchedule.plan.version.minor++;
+            fullUser.plan.version.minor++;
 
-            return [WhatToSave.PLAN_AND_SCHEDULE, planAndSchedule];
+            return [WhatToSave.PLAN_AND_SCHEDULE, fullUser];
         });
 
         return {
-            plan: newPlanAndSchedule.plan
+            plan: newFullUser.plan
         };
     }
 
@@ -699,9 +705,9 @@ export class Service {
             throw new ServiceError(`Cannot specify both a new repeat schedule and try to clear it as well`);
         }
 
-        const newPlanAndSchedule = await this.dbModifyPlanAndSchedule(planAndSchedule => {
-            const plan = planAndSchedule.plan;
-            const schedule = planAndSchedule.schedule;
+        const newFullUser = await this.dbModifyFullUser(fullUser => {
+            const plan = fullUser.plan;
+            const schedule = fullUser.schedule;
             const task = Service.getTaskById(plan, req.taskId);
 
             Service.getGoalById(plan, task.goalId, true);
@@ -751,20 +757,20 @@ export class Service {
             } else if (req.clearRepeatSchedule) {
                 task.repeatSchedule = undefined;
             }
-            planAndSchedule.plan.version.minor++;
+            fullUser.plan.version.minor++;
 
-            return [WhatToSave.PLAN_AND_SCHEDULE, planAndSchedule];
+            return [WhatToSave.PLAN_AND_SCHEDULE, fullUser];
         });
 
         return {
-            plan: newPlanAndSchedule.plan
+            plan: newFullUser.plan
         };
     }
 
     public async archiveTask(req: ArchiveTaskRequest): Promise<ArchiveTaskResponse> {
 
-        const newPlanAndSchedule = await this.dbModifyPlanAndSchedule(planAndSchedule => {
-            const plan = planAndSchedule.plan;
+        const newFullUser = await this.dbModifyFullUser(fullUser => {
+            const plan = fullUser.plan;
             const task = Service.getTaskById(plan, req.taskId);
             const goal = Service.getGoalById(plan, task.goalId, true);
 
@@ -775,11 +781,11 @@ export class Service {
 
             plan.version.minor++;
 
-            return [WhatToSave.PLAN_AND_SCHEDULE, planAndSchedule];
+            return [WhatToSave.PLAN_AND_SCHEDULE, fullUser];
         });
 
         return {
-            plan: newPlanAndSchedule.plan
+            plan: newFullUser.plan
         };
     }
 
@@ -796,8 +802,8 @@ export class Service {
             isArchived: false
         };
 
-        const newPlanAndSchedule = await this.dbModifyPlanAndSchedule(planAndSchedule => {
-            const plan = planAndSchedule.plan;
+        const newFullUser = await this.dbModifyFullUser(fullUser => {
+            const plan = fullUser.plan;
             const task = Service.getTaskById(plan, req.taskId);
             Service.getGoalById(plan, task.goalId);
 
@@ -823,11 +829,11 @@ export class Service {
 
             plan.version.minor++;
 
-            return [WhatToSave.PLAN_AND_SCHEDULE, planAndSchedule];
+            return [WhatToSave.PLAN_AND_SCHEDULE, fullUser];
         });
 
         return {
-            plan: newPlanAndSchedule.plan
+            plan: newFullUser.plan
         };
     }
 
@@ -839,8 +845,8 @@ export class Service {
             throw new ServiceError(`Cannot both move to toplevel and a child under ${req.parentSubTaskId}`);
         }
 
-        const newPlanAndSchedule = await this.dbModifyPlanAndSchedule(planAndSchedule => {
-            const plan = planAndSchedule.plan;
+        const newFullUser = await this.dbModifyFullUser(fullUser => {
+            const plan = fullUser.plan;
             const subTask = Service.getSubTaskById(plan, req.subTaskId);
             const task = Service.getTaskById(plan, subTask.taskId);
             const parentSubTask = subTask.parentSubTaskId ? Service.getSubTaskById(plan, subTask.parentSubTaskId) : null;
@@ -984,20 +990,20 @@ export class Service {
                 throw new CriticalServiceError("Invalid service path!");
             }
 
-            planAndSchedule.plan.version.minor++;
+            fullUser.plan.version.minor++;
 
-            return [WhatToSave.PLAN_AND_SCHEDULE, planAndSchedule];
+            return [WhatToSave.PLAN_AND_SCHEDULE, fullUser];
         });
 
         return {
-            plan: newPlanAndSchedule.plan
+            plan: newFullUser.plan
         };
     }
 
     public async updateSubTask(req: UpdateSubTaskRequest): Promise<UpdateSubTaskResponse> {
 
-        const newPlanAndSchedule = await this.dbModifyPlanAndSchedule(planAndSchedule => {
-            const plan = planAndSchedule.plan;
+        const newFullUser = await this.dbModifyFullUser(fullUser => {
+            const plan = fullUser.plan;
             const subTask = Service.getSubTaskById(plan, req.subTaskId);
             const task = Service.getTaskById(plan, subTask.taskId);
             Service.getGoalById(plan, task.goalId);
@@ -1008,18 +1014,18 @@ export class Service {
 
             plan.version.minor++;
 
-            return [WhatToSave.PLAN_AND_SCHEDULE, planAndSchedule];
+            return [WhatToSave.PLAN_AND_SCHEDULE, fullUser];
         });
 
         return {
-            plan: newPlanAndSchedule.plan
+            plan: newFullUser.plan
         };
     }
 
     public async archiveSubTask(req: ArchiveSubTaskRequest): Promise<ArchiveSubTaskResponse> {
 
-        const newPlanAndSchedule = await this.dbModifyPlanAndSchedule(planAndSchedule => {
-            const plan = planAndSchedule.plan;
+        const newFullUser = await this.dbModifyFullUser(fullUser => {
+            const plan = fullUser.plan;
             const subTask = Service.getSubTaskById(plan, req.subTaskId);
             const parentSubTask = subTask.parentSubTaskId ? Service.getSubTaskById(plan, subTask.parentSubTaskId) : null;
             const task = Service.getTaskById(plan, subTask.taskId);
@@ -1037,22 +1043,22 @@ export class Service {
 
             plan.version.minor++;
 
-            return [WhatToSave.PLAN_AND_SCHEDULE, planAndSchedule];
+            return [WhatToSave.PLAN_AND_SCHEDULE, fullUser];
         });
 
         return {
-            plan: newPlanAndSchedule.plan
+            plan: newFullUser.plan
         };
     }
 
     // Schedules
 
     public async getLatestSchedule(): Promise<GetLatestScheduleResponse> {
-        const planAndSchedule = await this.dbGetLatestPlanAndSchedule();
+        const fullUser = await this.dbGetFullUser();
 
         return {
-            plan: planAndSchedule.plan,
-            schedule: planAndSchedule.schedule
+            plan: fullUser.plan,
+            schedule: fullUser.schedule
         };
     }
 
@@ -1085,9 +1091,9 @@ export class Service {
     }
 
     private async handleMetric(metricId: MetricId, entry: CollectedMetricEntry, allowedType: MetricType): Promise<RecordForMetricResponse | IncrementMetricResponse> {
-        const newPlanAndSchedule = await this.dbModifyPlanAndSchedule(planAndSchedule => {
-            const plan = planAndSchedule.plan;
-            const schedule = planAndSchedule.schedule;
+        const newFullUser = await this.dbModifyFullUser(fullUser => {
+            const plan = fullUser.plan;
+            const schedule = fullUser.schedule;
 
             const metric = Service.getMetricById(plan, metricId);
 
@@ -1109,21 +1115,21 @@ export class Service {
             entry.id = schedule.idSerialHack;
             entry.collectedMetricId = collectedMetric.id;
 
-            return [WhatToSave.SCHEDULE, planAndSchedule];
+            return [WhatToSave.SCHEDULE, fullUser];
         });
 
         return {
-            plan: newPlanAndSchedule.plan,
-            schedule: newPlanAndSchedule.schedule
+            plan: newFullUser.plan,
+            schedule: newFullUser.schedule
         };
     }
 
     public async markTaskAsDone(req: MarkTaskAsDoneRequest): Promise<MarkTaskAsDoneResponse> {
 
-        const newPlanAndSchedule = await this.dbModifyPlanAndSchedule(planAndSchedule => {
+        const newFullUser = await this.dbModifyFullUser(fullUser => {
 
-            const plan = planAndSchedule.plan;
-            const schedule = planAndSchedule.schedule;
+            const plan = fullUser.plan;
+            const schedule = fullUser.schedule;
 
             const task = Service.getTaskById(plan, req.taskId);
             Service.getGoalById(plan, task.goalId);
@@ -1131,19 +1137,19 @@ export class Service {
             const scheduledTask = schedule.scheduledTasksByTaskId.get(req.taskId);
 
             if (scheduledTask === undefined) {
-                throw new CriticalServiceError(`Scheduled task for task with id ${req.taskId} does not exist for user ${Service.DEFAULT_USER_ID}`);
+                throw new CriticalServiceError(`Scheduled task for task with id ${req.taskId} does not exist`);
             }
 
             // Find the one scheduled task.
             scheduledTask.entries[0].isDone = true;
             schedule.version.minor++;
 
-            return [WhatToSave.SCHEDULE, planAndSchedule];
+            return [WhatToSave.SCHEDULE, fullUser];
         });
 
         return {
-            plan: newPlanAndSchedule.plan,
-            schedule: newPlanAndSchedule.schedule
+            plan: newFullUser.plan,
+            schedule: newFullUser.schedule
         };
     }
 
@@ -1168,17 +1174,17 @@ export class Service {
         const rightNow = moment.utc();
         const rightNowDay = rightNow.startOf("day");
 
-        await this.dbModifyPlanAndSchedule(planAndSchedule => {
-            const plan = planAndSchedule.plan;
+        await this.dbModifyFullUser(fullUser => {
+            const plan = fullUser.plan;
 
             let modifiedSomething = false;
 
-            for (const task of planAndSchedule.plan.tasksById.values()) {
+            for (const task of fullUser.plan.tasksById.values()) {
                 if (task.repeatSchedule === undefined) {
                     continue;
                 }
 
-                const scheduledTask = planAndSchedule.schedule.scheduledTasksByTaskId.get(task.id);
+                const scheduledTask = fullUser.schedule.scheduledTasksByTaskId.get(task.id);
 
                 if (scheduledTask === undefined) {
                     throw new CriticalServiceError(`Scheduled task for task with id ${task.id} does not exist`);
@@ -1206,9 +1212,9 @@ export class Service {
                         continue;
                     }
 
-                    planAndSchedule.schedule.idSerialHack++;
+                    fullUser.schedule.idSerialHack++;
                     scheduledTask.entries.push({
-                        id: planAndSchedule.schedule.idSerialHack,
+                        id: fullUser.schedule.idSerialHack,
                         scheduledTaskId: scheduledTask.id,
                         isDone: false,
                         repeatScheduleAt: date
@@ -1218,77 +1224,122 @@ export class Service {
             }
 
             if (modifiedSomething) {
-                planAndSchedule.schedule.version.minor++;
-                return [WhatToSave.SCHEDULE, planAndSchedule];
+                fullUser.schedule.version.minor++;
+                return [WhatToSave.SCHEDULE, fullUser];
             }  else {
-                return [WhatToSave.NONE, planAndSchedule];
+                return [WhatToSave.NONE, fullUser];
             }
         });
     }
 
     // DB access & helpers
 
-    private async dbGetLatestPlanAndSchedule(): Promise<PlanAndSchedule> {
+    private async dbGetFullUser(): Promise<FullUser> {
         return await this.conn.transaction(async (trx: Transaction) => {
-            const plan = await this.dbGetLatestPlan(trx, Service.DEFAULT_USER_ID);
-            const schedule = await this.dbGetLatestSchedule(trx, Service.DEFAULT_USER_ID, plan.id);
+            const user = await this.dbGetLatestUser(trx, Service.DEFAULT_USER_ID);
+            const plan = await this.dbGetLatestPlan(trx, user.id);
+            const schedule = await this.dbGetLatestSchedule(trx, user.id, plan.id);
 
             return {
+                user: user,
                 plan: plan,
                 schedule: schedule
             };
         });
     }
 
-    private async dbModifyPlanAndSchedule(action: (planAndSchedule: PlanAndSchedule) => [WhatToSave, PlanAndSchedule]): Promise<PlanAndSchedule> {
+    private async dbModifyFullUser(action: (fullUser: FullUser) => [WhatToSave, FullUser]): Promise<FullUser> {
         return await this.conn.transaction(async (trx: Transaction) => {
-            const plan = await this.dbGetLatestPlan(trx, Service.DEFAULT_USER_ID);
-            const schedule = await this.dbGetLatestSchedule(trx, Service.DEFAULT_USER_ID, plan.id);
+            const user = await this.dbGetLatestUser(trx, Service.DEFAULT_USER_ID);
+            const plan = await this.dbGetLatestPlan(trx, user.id);
+            const schedule = await this.dbGetLatestSchedule(trx, user.id, plan.id);
 
-            const [whatToSave, newPlanAndSchedule] = action({plan: plan, schedule: schedule});
+            const fullUser = {
+                user: user,
+                plan: plan,
+                schedule: schedule
+            };
 
+            const [whatToSave, newFullUser] = action(fullUser);
+
+            let newSavedUser;
             let newSavedPlan;
             let newSavedSchedule;
             switch (whatToSave) {
                 case WhatToSave.NONE:
-                    newSavedPlan = newPlanAndSchedule.plan;
-                    newSavedSchedule = newPlanAndSchedule.schedule;
+                    newSavedUser = newFullUser.user;
+                    newSavedPlan = newFullUser.plan;
+                    newSavedSchedule = newFullUser.schedule;
                     break;
-                case WhatToSave.PLAN:
-                    newSavedPlan = await this.dbSavePlan(trx, Service.DEFAULT_USER_ID, newPlanAndSchedule.plan);
-                    newSavedSchedule = newPlanAndSchedule.schedule;
-                    break;
+                case WhatToSave.USER:
+                    newSavedUser = await this.dbSaveUser(trx, newFullUser.user);
+                    newSavedPlan = newFullUser.plan;
+                    newSavedSchedule = newFullUser.schedule;
                 case WhatToSave.SCHEDULE:
-                    newSavedPlan = newPlanAndSchedule.plan;
-                    newSavedSchedule = await this.dbSaveSchedule(trx, Service.DEFAULT_USER_ID, newPlanAndSchedule.plan.id, newPlanAndSchedule.schedule);
+                    newSavedUser = newFullUser.user;
+                    newSavedPlan = newFullUser.plan;
+                    newSavedSchedule = await this.dbSaveSchedule(trx, newSavedUser.id, newFullUser.plan.id, newFullUser.schedule);
                     break;
                 case WhatToSave.PLAN_AND_SCHEDULE:
-                    newSavedPlan = await this.dbSavePlan(trx, Service.DEFAULT_USER_ID, newPlanAndSchedule.plan);
-                    newSavedSchedule = await this.dbSaveSchedule(trx, Service.DEFAULT_USER_ID, newSavedPlan.id, newPlanAndSchedule.schedule);
+                    newSavedUser = newFullUser.user;
+                    newSavedPlan = await this.dbSavePlan(trx, newSavedUser.id, newFullUser.plan);
+                    newSavedSchedule = await this.dbSaveSchedule(trx, newSavedUser.id, newSavedPlan.id, newFullUser.schedule);
                     break;
             }
 
             return {
+                user: newSavedUser as User,
                 plan: newSavedPlan as Plan,
                 schedule: newSavedSchedule as Schedule
             };
         });
     }
 
-    private async dbCreatePlanIfDoesNotExist(): Promise<void> {
+    private async dbCreateFullUserIfDoesNotExist(): Promise<void> {
         await this.conn.transaction(async (trx: Transaction) => {
             try {
-                await this.dbGetLatestPlan(trx, Service.DEFAULT_USER_ID);
+                await this.dbGetLatestUser(trx, Service.DEFAULT_USER_ID);
             } catch (e) {
-                if (!e.message.startsWith("No plan for user")) {
+                if (!e.message.startsWith("No user")) {
                     throw e;
                 }
 
-                const initialPlanAndSchedule = Service.getEmptyPlanAndSchedule();
-                const newPlan = await this.dbSavePlan(trx, Service.DEFAULT_USER_ID, initialPlanAndSchedule.plan);
-                await this.dbSaveSchedule(trx, Service.DEFAULT_USER_ID, newPlan.id, initialPlanAndSchedule.schedule);
+                const initialFullUser = Service.getEmptyFullUser();
+                const newUser = await this.dbSaveUser(trx, initialFullUser.user);
+                const newPlan = await this.dbSavePlan(trx, newUser.id, initialFullUser.plan);
+                await this.dbSaveSchedule(trx, newUser.id, newPlan.id, initialFullUser.schedule);
             }
         });
+    }
+
+    private async dbGetLatestUser(conn: knex, userId: UserId): Promise<User> {
+        const userRows = await conn
+            .from(Service.USER_TABLE)
+            .select(Service.USER_FIELDS)
+            .where("id", userId)
+            .limit(1);
+
+        if (userRows.length === 0) {
+            throw new ServiceError(`No user with id ${userId}`);
+        }
+
+        return Service.dbUserToUser(userRows[0]);
+    }
+
+    private async dbSaveUser(conn: knex, user: User): Promise<User> {
+        const userRows = await conn
+            .from(Service.USER_TABLE)
+            .returning(Service.USER_FIELDS)
+            .insert({
+                id: user.id,
+                user_json: Service.userToDbUser(user)
+            });
+
+        if (userRows.length === 0) {
+            throw new ServiceError(`Could not insert user ${user.id}`);
+        }
+
+        return Service.dbUserToUser(userRows[0]);
     }
 
     private async dbGetLatestPlan(conn: knex, userId: UserId): Promise<Plan> {
@@ -1314,7 +1365,7 @@ export class Service {
             .insert({
                 version_major: plan.version.major,
                 version_minor: plan.version.minor,
-                plan: Service.planToDbPlan(plan),
+                plan_json: Service.planToDbPlan(plan),
                 user_id: userId
             });
 
@@ -1349,7 +1400,7 @@ export class Service {
             .insert({
                 version_major: schedule.version.major,
                 version_minor: schedule.version.minor,
-                schedule: Service.scheduleToDbSchedule(schedule),
+                schedule_json: Service.scheduleToDbSchedule(schedule),
                 user_id: userId,
                 plan_id: planId
             });
@@ -1359,6 +1410,20 @@ export class Service {
         }
 
         return Service.dbScheduleToSchedule(scheduleRows[0]);
+    }
+
+    private static dbUserToUser(userRow: any): User {
+        const user = {
+            id: userRow.id
+        };
+
+        return user;
+    }
+
+    private static userToDbUser(user: User): any {
+        return {
+            id: user.id
+        };
     }
 
     private static dbPlanToPlan(planRow: any): Plan {
@@ -1383,7 +1448,7 @@ export class Service {
             }
         }
 
-        const dbPlan = planRow["plan"];
+        const dbPlan = planRow["plan_json"];
 
         const plan: Plan = {
             id: planRow.id,
@@ -1602,7 +1667,7 @@ export class Service {
 
     private static dbScheduleToSchedule(scheduleRow: any): Schedule {
 
-        const dbSchedule = scheduleRow["schedule"];
+        const dbSchedule = scheduleRow["schedule_json"];
 
         const schedule: Schedule = {
             id: scheduleRow.id,
@@ -1686,8 +1751,11 @@ export class Service {
         };
     }
 
-    private static getEmptyPlanAndSchedule(): PlanAndSchedule {
-        const newPlanAndSchedule = {
+    private static getEmptyFullUser(): FullUser {
+        const newFullUser = {
+            user: {
+                id: Service.DEFAULT_USER_ID
+            },
             plan: {
                 id: -1,
                 version: {
@@ -1734,9 +1802,9 @@ export class Service {
                 scheduledTasksByTaskId: new Map<TaskId, ScheduledTask>()
             }
         };
-        newPlanAndSchedule.plan.goalsById.set(1, newPlanAndSchedule.plan.goals[0]);
+        newFullUser.plan.goalsById.set(1, newFullUser.plan.goals[0]);
 
-        return newPlanAndSchedule;
+        return newFullUser;
     }
 
     private static deadlineFromRange(rightNow: moment.Moment, range: GoalRange): moment.Moment | undefined {
@@ -1794,7 +1862,7 @@ export class Service {
         const goal = plan.goalsById.get(id);
 
         if (goal === undefined) {
-            throw new CriticalServiceError(`Goal with id ${id} does not exist for user ${Service.DEFAULT_USER_ID}`);
+            throw new CriticalServiceError(`Goal with id ${id} does not exist`);
         } else if (goal.isArchived && !allowArchived) {
             throw new ServiceError(`Goal with id ${id} cannot be operated upon since it is archived`);
         } else if (goal.isDone && !allowDone) {
@@ -2054,12 +2122,13 @@ export interface MarkTaskAsDoneResponse {
 
 enum WhatToSave {
     NONE = "none",
-    PLAN = "plan",
+    USER = "user",
     SCHEDULE = "schedule",
     PLAN_AND_SCHEDULE = "plan-and-schedule"
 }
 
-interface PlanAndSchedule {
+interface FullUser {
+    user: User;
     plan: Plan;
     schedule: Schedule;
 }

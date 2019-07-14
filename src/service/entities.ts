@@ -18,6 +18,10 @@ export interface Version {
     minor: number;
 }
 
+export interface User {
+    id: UserId;
+}
+
 export interface Plan {
     id: PlanId;
     version: Version;
