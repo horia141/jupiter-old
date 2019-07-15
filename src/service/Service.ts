@@ -1,6 +1,9 @@
 import * as knex from "knex";
 import {Transaction} from "knex";
 import * as moment from "moment";
+import * as EmailValidator from 'email-validator';
+import * as bcrypt from "bcrypt";
+import * as jwt from "jsonwebtoken";
 
 import {
     Board,
@@ -21,7 +24,9 @@ import {
     Task,
     TaskId,
     TaskPriority,
-    TaskRepeatSchedule, TaskUrgency, User,
+    TaskRepeatSchedule,
+    TaskUrgency,
+    User,
     UserId
 } from "./entities";
 
@@ -44,12 +49,12 @@ export class Service {
 
     private static readonly REPEATING_TASKS_INTERVAL = moment.duration(1, "minute");
 
-    private static readonly DEFAULT_USER_ID = 1;
-
     private static readonly USER_TABLE = "core.users";
     private static readonly USER_FIELDS = [
         "id",
-        "user_json"
+        "user_json",
+        "email",
+        "password_hash"
     ];
 
     private static readonly PLAN_TABLE = "core.plans";
@@ -68,26 +73,82 @@ export class Service {
         "schedule_json"
     ];
 
+    private static readonly BCRYPT_ROUNDS = 10;
+    private static readonly AUTH_TOKEN_LIFE_HOURS = 4;
+    public static readonly AUTH_TOKEN_ENCRYPTION_KEY = "Big Secret";
+
     public constructor(
         private readonly conn: knex) {
     }
 
     public async init(): Promise<void> {
-        await this.dbCreateFullUserIfDoesNotExist();
         setInterval(this.updateScheduleWithRepeatingTasks.bind(this), Service.REPEATING_TASKS_INTERVAL.asMilliseconds());
+    }
+
+    // User
+
+    public async getOrCreateUser(req: GetOrCreateUserRequest): Promise<GetOrCreateUserResponse> {
+
+        const rightNow = moment.utc();
+
+        if (!EmailValidator.validate(req.email)) {
+            throw new ServiceError(`Supplied email ${req.email} is invalid`);
+        } else if (req.password.trim().length === 0) {
+            throw new ServiceError(`Supplied password is invalid`);
+        }
+
+        const fullUser = await this.dbGetOrCreateFullUser(req.email, req.password);
+
+        const jwtPayload = {
+            id: fullUser.id,
+            iat: rightNow.unix(),
+            exp: rightNow.add(Service.AUTH_TOKEN_LIFE_HOURS, "hours").unix()
+        };
+
+        return new Promise<GetOrCreateUserResponse>((resolve, reject) => {
+
+            jwt.sign(jwtPayload, Service.AUTH_TOKEN_ENCRYPTION_KEY, (err, jwtEncoded) => {
+                if (err) {
+                    return reject(new ServiceError(`Crypto error ${err.message}`));
+                }
+
+                resolve({
+                    auth: {
+                        token: jwtEncoded
+                    }
+                });
+            });
+        });
+    }
+
+    @needsAuth
+    public async archiveUser(ctx: Context, _req: ArchiveUserRequest): Promise<ArchiveUserResponse> {
+
+        await this.dbModifyFullUser(ctx, fullUser => {
+            const user = fullUser.user;
+
+            user.isArchived = true;
+
+            return [WhatToSave.USER, fullUser];
+        });
+
+        return {};
     }
 
     // Plans
 
-    public async getLatestPlan(): Promise<GetLatestPlanResponse> {
-        const plan = await this.dbGetLatestPlan(this.conn, Service.DEFAULT_USER_ID);
+    @needsAuth
+    public async getLatestPlan(ctx: Context, _req: GetLatestPlanRequest): Promise<GetLatestPlanResponse> {
+
+        const plan = await this.dbGetLatestPlan(this.conn, ctx.userId);
 
         return {
             plan: plan
         };
     }
 
-    public async createGoal(req: CreateGoalRequest): Promise<CreateGoalResponse> {
+    @needsAuth
+    public async createGoal(ctx: Context, req: CreateGoalRequest): Promise<CreateGoalResponse> {
 
         const rightNow = moment.utc();
 
@@ -113,7 +174,7 @@ export class Service {
             isArchived: false
         };
 
-        const newFullUser = await this.dbModifyFullUser(fullUser => {
+        const newFullUser = await this.dbModifyFullUser(ctx, fullUser => {
             const plan = fullUser.plan;
 
             plan.idSerialHack++;
@@ -142,7 +203,8 @@ export class Service {
         };
     }
 
-    public async moveGoal(req: MoveGoalRequest): Promise<MoveGoalResponse> {
+    @needsAuth
+    public async moveGoal(ctx: Context, req: MoveGoalRequest): Promise<MoveGoalResponse> {
 
         const rightNow = moment.utc();
 
@@ -152,7 +214,7 @@ export class Service {
             throw new ServiceError(`Cannot both move to toplevel and a child under ${req.parentGoalId}`);
         }
 
-        const newFullUser = await this.dbModifyFullUser(fullUser => {
+        const newFullUser = await this.dbModifyFullUser(ctx, fullUser => {
             const plan = fullUser.plan;
             const goal = Service.getGoalById(plan, req.goalId, true);
 
@@ -272,16 +334,13 @@ export class Service {
                 parentGoal.subgoals.push(goal);
                 parentGoal.subgoalsById.set(goal.id, goal);
                 if (req.position === undefined) {
-                    console.log("there");
                     parentGoal.subgoalsOrder.push(goal.id);
                 } else {
-                    console.log("everywhere");
                     if (req.position < 1 || req.position > parentGoal.subgoalsOrder.length) {
                         throw new ServiceError(`Cannot move goal with id ${goal.id} to position ${req.position}`);
                     }
 
                     parentGoal.subgoalsOrder.splice(req.position - 1, 0, goal.id);
-                    console.log(parentGoal.subgoalsOrder);
                 }
             } else if (!req.moveToToplevel && req.parentGoalId === undefined && goal.parentGoalId !== undefined && req.position !== undefined) {
                 // Move a child goal to a certain position in its parent.
@@ -319,11 +378,12 @@ export class Service {
         };
     }
 
-    public async updateGoal(req: UpdateGoalRequest): Promise<UpdateGoalResponse> {
+    @needsAuth
+    public async updateGoal(ctx: Context, req: UpdateGoalRequest): Promise<UpdateGoalResponse> {
 
         const rightNow = moment.utc();
 
-        const newFullUser = await this.dbModifyFullUser(fullUser => {
+        const newFullUser = await this.dbModifyFullUser(ctx, fullUser => {
             const goal = Service.getGoalById(fullUser.plan, req.goalId, true);
 
             if (goal.isSystemGoal) {
@@ -350,9 +410,10 @@ export class Service {
         };
     }
 
-    public async markGoalAsDone(req: MarkGoalAsDoneRequest): Promise<MarkGoalAsDoneResponse> {
+    @needsAuth
+    public async markGoalAsDone(ctx: Context, req: MarkGoalAsDoneRequest): Promise<MarkGoalAsDoneResponse> {
 
-        const newFullUser = await this.dbModifyFullUser(fullUser => {
+        const newFullUser = await this.dbModifyFullUser(ctx, fullUser => {
             const plan = fullUser.plan;
             const goal = Service.getGoalById(plan, req.goalId);
             const parentGoal = goal.parentGoalId ? Service.getGoalById(plan, goal.parentGoalId) : null;
@@ -380,9 +441,10 @@ export class Service {
         };
     }
 
-    public async archiveGoal(req: ArchiveGoalRequest): Promise<ArchiveGoalResponse> {
+    @needsAuth
+    public async archiveGoal(ctx: Context, req: ArchiveGoalRequest): Promise<ArchiveGoalResponse> {
 
-        const newFullUser = await this.dbModifyFullUser(fullUser => {
+        const newFullUser = await this.dbModifyFullUser(ctx, fullUser => {
             const plan = fullUser.plan;
             const goal = Service.getGoalById(plan, req.goalId, false, true);
             const parentGoal = goal.parentGoalId ? Service.getGoalById(plan, goal.parentGoalId) : null;
@@ -411,7 +473,8 @@ export class Service {
         };
     }
 
-    public async createMetric(req: CreateMetricRequest): Promise<CreateMetricResponse> {
+    @needsAuth
+    public async createMetric(ctx: Context, req: CreateMetricRequest): Promise<CreateMetricResponse> {
 
         const newMetric: Metric = {
             id: -1,
@@ -428,7 +491,7 @@ export class Service {
             entries: []
         };
 
-        const newFullUser = await this.dbModifyFullUser(fullUser => {
+        const newFullUser = await this.dbModifyFullUser(ctx, fullUser => {
             const plan = fullUser.plan;
             const schedule = fullUser.schedule;
             const goal = req.goalId ? Service.getGoalById(plan, req.goalId) : Service.getGoalById(plan, plan.inboxGoalId);
@@ -461,13 +524,14 @@ export class Service {
         };
     }
 
-    public async moveMetric(req: MoveMetricRequest): Promise<MoveMetricResponse> {
+    @needsAuth
+    public async moveMetric(ctx: Context, req: MoveMetricRequest): Promise<MoveMetricResponse> {
 
         if (req.goalId === undefined && req.position === undefined) {
             throw new ServiceError("You must specify at least one of goalId or position");
         }
 
-        const newFullUser = await this.dbModifyFullUser(fullUser => {
+        const newFullUser = await this.dbModifyFullUser(ctx, fullUser => {
             const plan = fullUser.plan;
             const metric = Service.getMetricById(plan, req.metricId);
 
@@ -517,9 +581,10 @@ export class Service {
         };
     }
 
-    public async updateMetric(req: UpdateMetricRequest): Promise<UpdateMetricResponse> {
+    @needsAuth
+    public async updateMetric(ctx: Context, req: UpdateMetricRequest): Promise<UpdateMetricResponse> {
 
-        const newFullUser = await this.dbModifyFullUser(fullUser => {
+        const newFullUser = await this.dbModifyFullUser(ctx, fullUser => {
             const plan = fullUser.plan;
             const metric = Service.getMetricById(plan, req.metricId);
 
@@ -541,9 +606,10 @@ export class Service {
         };
     }
 
-    public async archiveMetric(req: ArchiveMetricRequest): Promise<ArchiveMetricResponse> {
+    @needsAuth
+    public async archiveMetric(ctx: Context, req: ArchiveMetricRequest): Promise<ArchiveMetricResponse> {
 
-        const newFullUser = await this.dbModifyFullUser(fullUser => {
+        const newFullUser = await this.dbModifyFullUser(ctx, fullUser => {
             const plan = fullUser.plan;
             const metric = Service.getMetricById(plan, req.metricId);
 
@@ -560,7 +626,8 @@ export class Service {
         };
     }
 
-    public async createTask(req: CreateTaskRequest): Promise<CreateTaskResponse> {
+    @needsAuth
+    public async createTask(ctx: Context, req: CreateTaskRequest): Promise<CreateTaskResponse> {
 
         const rightNow = moment.utc();
 
@@ -597,7 +664,7 @@ export class Service {
             }]
         };
 
-        const newFullUser = await this.dbModifyFullUser(fullUser => {
+        const newFullUser = await this.dbModifyFullUser(ctx, fullUser => {
             const plan = fullUser.plan;
             const schedule = fullUser.schedule;
             const goal = req.goalId ? Service.getGoalById(plan, req.goalId) : Service.getGoalById(plan, plan.inboxGoalId);
@@ -633,13 +700,14 @@ export class Service {
         };
     }
 
-    public async moveTask(req: MoveTaskRequest): Promise<MoveTaskResponse> {
+    @needsAuth
+    public async moveTask(ctx: Context, req: MoveTaskRequest): Promise<MoveTaskResponse> {
 
         if (req.goalId === undefined && req.position === undefined) {
             throw new ServiceError("You must specify at least one of goalId or position");
         }
 
-        const newFullUser = await this.dbModifyFullUser(fullUser => {
+        const newFullUser = await this.dbModifyFullUser(ctx, fullUser => {
             const plan = fullUser.plan;
             const task = Service.getTaskById(plan, req.taskId);
 
@@ -689,7 +757,8 @@ export class Service {
         };
     }
 
-    public async updateTask(req: UpdateTaskRequest): Promise<UpdateTaskResponse> {
+    @needsAuth
+    public async updateTask(ctx: Context, req: UpdateTaskRequest): Promise<UpdateTaskResponse> {
 
         const rightNow = moment.utc();
 
@@ -705,7 +774,7 @@ export class Service {
             throw new ServiceError(`Cannot specify both a new repeat schedule and try to clear it as well`);
         }
 
-        const newFullUser = await this.dbModifyFullUser(fullUser => {
+        const newFullUser = await this.dbModifyFullUser(ctx, fullUser => {
             const plan = fullUser.plan;
             const schedule = fullUser.schedule;
             const task = Service.getTaskById(plan, req.taskId);
@@ -767,9 +836,10 @@ export class Service {
         };
     }
 
-    public async archiveTask(req: ArchiveTaskRequest): Promise<ArchiveTaskResponse> {
+    @needsAuth
+    public async archiveTask(ctx: Context, req: ArchiveTaskRequest): Promise<ArchiveTaskResponse> {
 
-        const newFullUser = await this.dbModifyFullUser(fullUser => {
+        const newFullUser = await this.dbModifyFullUser(ctx, fullUser => {
             const plan = fullUser.plan;
             const task = Service.getTaskById(plan, req.taskId);
             const goal = Service.getGoalById(plan, task.goalId, true);
@@ -789,7 +859,8 @@ export class Service {
         };
     }
 
-    public async createSubTask(req: CreateSubTaskRequest): Promise<CreateSubTaskResponse> {
+    @needsAuth
+    public async createSubTask(ctx: Context, req: CreateSubTaskRequest): Promise<CreateSubTaskResponse> {
 
         const newSubTask: SubTask = {
             id: -1,
@@ -802,7 +873,7 @@ export class Service {
             isArchived: false
         };
 
-        const newFullUser = await this.dbModifyFullUser(fullUser => {
+        const newFullUser = await this.dbModifyFullUser(ctx, fullUser => {
             const plan = fullUser.plan;
             const task = Service.getTaskById(plan, req.taskId);
             Service.getGoalById(plan, task.goalId);
@@ -837,7 +908,8 @@ export class Service {
         };
     }
 
-    public async moveSubTask(req: MoveSubTaskRequest): Promise<MoveSubTaskResponse> {
+    @needsAuth
+    public async moveSubTask(ctx: Context, req: MoveSubTaskRequest): Promise<MoveSubTaskResponse> {
 
         if (!req.moveToTopLevel && req.parentSubTaskId === undefined && req.position === undefined) {
             throw new ServiceError("You must specify at least one of toplevel, parentSubTaskId or position");
@@ -845,7 +917,7 @@ export class Service {
             throw new ServiceError(`Cannot both move to toplevel and a child under ${req.parentSubTaskId}`);
         }
 
-        const newFullUser = await this.dbModifyFullUser(fullUser => {
+        const newFullUser = await this.dbModifyFullUser(ctx, fullUser => {
             const plan = fullUser.plan;
             const subTask = Service.getSubTaskById(plan, req.subTaskId);
             const task = Service.getTaskById(plan, subTask.taskId);
@@ -1000,9 +1072,10 @@ export class Service {
         };
     }
 
-    public async updateSubTask(req: UpdateSubTaskRequest): Promise<UpdateSubTaskResponse> {
+    @needsAuth
+    public async updateSubTask(ctx: Context, req: UpdateSubTaskRequest): Promise<UpdateSubTaskResponse> {
 
-        const newFullUser = await this.dbModifyFullUser(fullUser => {
+        const newFullUser = await this.dbModifyFullUser(ctx, fullUser => {
             const plan = fullUser.plan;
             const subTask = Service.getSubTaskById(plan, req.subTaskId);
             const task = Service.getTaskById(plan, subTask.taskId);
@@ -1022,9 +1095,10 @@ export class Service {
         };
     }
 
-    public async archiveSubTask(req: ArchiveSubTaskRequest): Promise<ArchiveSubTaskResponse> {
+    @needsAuth
+    public async archiveSubTask(ctx: Context, req: ArchiveSubTaskRequest): Promise<ArchiveSubTaskResponse> {
 
-        const newFullUser = await this.dbModifyFullUser(fullUser => {
+        const newFullUser = await this.dbModifyFullUser(ctx, fullUser => {
             const plan = fullUser.plan;
             const subTask = Service.getSubTaskById(plan, req.subTaskId);
             const parentSubTask = subTask.parentSubTaskId ? Service.getSubTaskById(plan, subTask.parentSubTaskId) : null;
@@ -1053,8 +1127,9 @@ export class Service {
 
     // Schedules
 
-    public async getLatestSchedule(): Promise<GetLatestScheduleResponse> {
-        const fullUser = await this.dbGetFullUser();
+    @needsAuth
+    public async getLatestSchedule(ctx: Context, _req: GetLatestScheduleRequest): Promise<GetLatestScheduleResponse> {
+        const fullUser = await this.dbGetFullUser(ctx);
 
         return {
             plan: fullUser.plan,
@@ -1062,7 +1137,8 @@ export class Service {
         };
     }
 
-    public async incrementMetric(req: IncrementMetricRequest): Promise<IncrementMetricResponse> {
+    @needsAuth
+    public async incrementMetric(ctx: Context, req: IncrementMetricRequest): Promise<IncrementMetricResponse> {
 
         const rightNow = moment.utc();
 
@@ -1073,10 +1149,11 @@ export class Service {
             value: 1
         };
 
-        return await this.handleMetric(req.metricId, newCollectedMetricEntry, MetricType.COUNTER);
+        return await this.handleMetric(ctx, req.metricId, newCollectedMetricEntry, MetricType.COUNTER);
     }
 
-    public async recordForMetric(req: RecordForMetricRequest): Promise<RecordForMetricResponse> {
+    @needsAuth
+    public async recordForMetric(ctx: Context, req: RecordForMetricRequest): Promise<RecordForMetricResponse> {
 
         const rightNow = moment.utc();
 
@@ -1087,11 +1164,11 @@ export class Service {
             value: req.value
         };
 
-        return await this.handleMetric(req.metricId, newCollectedMetricEntry, MetricType.GAUGE);
+        return await this.handleMetric(ctx, req.metricId, newCollectedMetricEntry, MetricType.GAUGE);
     }
 
-    private async handleMetric(metricId: MetricId, entry: CollectedMetricEntry, allowedType: MetricType): Promise<RecordForMetricResponse | IncrementMetricResponse> {
-        const newFullUser = await this.dbModifyFullUser(fullUser => {
+    private async handleMetric(ctx: Context, metricId: MetricId, entry: CollectedMetricEntry, allowedType: MetricType): Promise<RecordForMetricResponse | IncrementMetricResponse> {
+        const newFullUser = await this.dbModifyFullUser(ctx, fullUser => {
             const plan = fullUser.plan;
             const schedule = fullUser.schedule;
 
@@ -1124,9 +1201,10 @@ export class Service {
         };
     }
 
-    public async markTaskAsDone(req: MarkTaskAsDoneRequest): Promise<MarkTaskAsDoneResponse> {
+    @needsAuth
+    public async markTaskAsDone(ctx: Context, req: MarkTaskAsDoneRequest): Promise<MarkTaskAsDoneResponse> {
 
-        const newFullUser = await this.dbModifyFullUser(fullUser => {
+        const newFullUser = await this.dbModifyFullUser(ctx, fullUser => {
 
             const plan = fullUser.plan;
             const schedule = fullUser.schedule;
@@ -1174,69 +1252,84 @@ export class Service {
         const rightNow = moment.utc();
         const rightNowDay = rightNow.startOf("day");
 
-        await this.dbModifyFullUser(fullUser => {
-            const plan = fullUser.plan;
+        const users = await this.dbGetAllActiveUsers(this.conn);
 
-            let modifiedSomething = false;
+        for (const user of users) {
 
-            for (const task of fullUser.plan.tasksById.values()) {
-                if (task.repeatSchedule === undefined) {
-                    continue;
-                }
+            const ctx = {
+                auth: { token: "A FAKE TOKEN WHICH IS FAKE" },
+                userId: user.id
+            };
 
-                const scheduledTask = fullUser.schedule.scheduledTasksByTaskId.get(task.id);
+            await this.dbModifyFullUser(ctx, fullUser => {
+                const plan = fullUser.plan;
 
-                if (scheduledTask === undefined) {
-                    throw new CriticalServiceError(`Scheduled task for task with id ${task.id} does not exist`);
-                }
+                let modifiedSomething = false;
 
-                const lastEntry = scheduledTask.entries[scheduledTask.entries.length - 1]; // Guaranteed to always exist!
-                const lastEntryRepeatScheduleAt = lastEntry.repeatScheduleAt.startOf("day"); // Should already be here!
-
-                const goal = Service.getGoalById(plan, task.goalId, true, true);
-
-                if (goal.isArchived || goal.isDone) {
-                    continue;
-                } else if (goal.deadline !== undefined && lastEntryRepeatScheduleAt.isSameOrAfter(goal.deadline)) {
-                    continue;
-                } else if (task.deadline !== undefined && lastEntryRepeatScheduleAt.isSameOrAfter(task.deadline)) {
-                    continue;
-                }
-
-                for (let date = lastEntryRepeatScheduleAt; date < rightNowDay; date = date.add(1, "day")) {
-                    if (!shouldAddRepeatedTaskToScheduleBasedOnDate(date, task.repeatSchedule)) {
-                        continue;
-                    } else if (goal.deadline !== undefined && date.isSameOrAfter(goal.deadline)) {
-                        continue;
-                    } else if (task.deadline !== undefined && date.isSameOrAfter(task.deadline)) {
+                for (const task of fullUser.plan.tasksById.values()) {
+                    if (task.repeatSchedule === undefined) {
                         continue;
                     }
 
-                    fullUser.schedule.idSerialHack++;
-                    scheduledTask.entries.push({
-                        id: fullUser.schedule.idSerialHack,
-                        scheduledTaskId: scheduledTask.id,
-                        isDone: false,
-                        repeatScheduleAt: date
-                    });
-                    modifiedSomething = true;
-                }
-            }
+                    const scheduledTask = fullUser.schedule.scheduledTasksByTaskId.get(task.id);
 
-            if (modifiedSomething) {
-                fullUser.schedule.version.minor++;
-                return [WhatToSave.SCHEDULE, fullUser];
-            }  else {
-                return [WhatToSave.NONE, fullUser];
-            }
-        });
+                    if (scheduledTask === undefined) {
+                        throw new CriticalServiceError(`Scheduled task for task with id ${task.id} does not exist`);
+                    }
+
+                    const lastEntry = scheduledTask.entries[scheduledTask.entries.length - 1]; // Guaranteed to always exist!
+                    const lastEntryRepeatScheduleAt = lastEntry.repeatScheduleAt.startOf("day"); // Should already be here!
+
+                    const goal = Service.getGoalById(plan, task.goalId, true, true);
+
+                    if (goal.isArchived || goal.isDone) {
+                        continue;
+                    } else if (goal.deadline !== undefined && lastEntryRepeatScheduleAt.isSameOrAfter(goal.deadline)) {
+                        continue;
+                    } else if (task.deadline !== undefined && lastEntryRepeatScheduleAt.isSameOrAfter(task.deadline)) {
+                        continue;
+                    }
+
+                    for (let date = lastEntryRepeatScheduleAt; date < rightNowDay; date = date.add(1, "day")) {
+                        if (!shouldAddRepeatedTaskToScheduleBasedOnDate(date, task.repeatSchedule)) {
+                            continue;
+                        } else if (goal.deadline !== undefined && date.isSameOrAfter(goal.deadline)) {
+                            continue;
+                        } else if (task.deadline !== undefined && date.isSameOrAfter(task.deadline)) {
+                            continue;
+                        }
+
+                        fullUser.schedule.idSerialHack++;
+                        scheduledTask.entries.push({
+                            id: fullUser.schedule.idSerialHack,
+                            scheduledTaskId: scheduledTask.id,
+                            isDone: false,
+                            repeatScheduleAt: date
+                        });
+                        modifiedSomething = true;
+                    }
+                }
+
+                if (modifiedSomething) {
+                    fullUser.schedule.version.minor++;
+                    return [WhatToSave.SCHEDULE, fullUser];
+                } else {
+                    return [WhatToSave.NONE, fullUser];
+                }
+            });
+        }
     }
 
     // DB access & helpers
 
-    private async dbGetFullUser(): Promise<FullUser> {
+    private async dbGetFullUser(ctx: Context): Promise<FullUser> {
         return await this.conn.transaction(async (trx: Transaction) => {
-            const user = await this.dbGetLatestUser(trx, Service.DEFAULT_USER_ID);
+            const user = await this.dbGetUserById(trx, ctx.userId);
+
+            if (user.isArchived) {
+                throw new ServiceError(`User id=${user.id} is archived`);
+            }
+
             const plan = await this.dbGetLatestPlan(trx, user.id);
             const schedule = await this.dbGetLatestSchedule(trx, user.id, plan.id);
 
@@ -1248,9 +1341,14 @@ export class Service {
         });
     }
 
-    private async dbModifyFullUser(action: (fullUser: FullUser) => [WhatToSave, FullUser]): Promise<FullUser> {
+    private async dbModifyFullUser(ctx: Context, action: (fullUser: FullUser) => [WhatToSave, FullUser]): Promise<FullUser> {
         return await this.conn.transaction(async (trx: Transaction) => {
-            const user = await this.dbGetLatestUser(trx, Service.DEFAULT_USER_ID);
+            const user = await this.dbGetUserById(trx, ctx.userId);
+
+            if (user.isArchived) {
+                throw new ServiceError(`User id=${user.id} is archived`);
+            }
+
             const plan = await this.dbGetLatestPlan(trx, user.id);
             const schedule = await this.dbGetLatestSchedule(trx, user.id, plan.id);
 
@@ -1272,7 +1370,7 @@ export class Service {
                     newSavedSchedule = newFullUser.schedule;
                     break;
                 case WhatToSave.USER:
-                    newSavedUser = await this.dbSaveUser(trx, newFullUser.user);
+                    newSavedUser = await this.dbUpdateUser(trx, newFullUser.user);
                     newSavedPlan = newFullUser.plan;
                     newSavedSchedule = newFullUser.schedule;
                 case WhatToSave.SCHEDULE:
@@ -1295,35 +1393,80 @@ export class Service {
         });
     }
 
-    private async dbCreateFullUserIfDoesNotExist(): Promise<void> {
-        await this.conn.transaction(async (trx: Transaction) => {
+    private async dbGetOrCreateFullUser(email: string, password: string): Promise<User> {
+        return await this.conn.transaction(async (trx: Transaction) => {
             try {
-                await this.dbGetLatestUser(trx, Service.DEFAULT_USER_ID);
+                const user = await this.dbGetUserByEmailAndPassword(trx, email, password);
+
+                if (user.isArchived) {
+                    throw new ServiceError(`User id=${user.id} is archived`);
+                }
+
+                return user;
             } catch (e) {
-                if (!e.message.startsWith("No user")) {
+                if (!e.message.startsWith("No user with email")) {
                     throw e;
                 }
 
-                const initialFullUser = Service.getEmptyFullUser();
+                const initialFullUser = await Service.getEmptyFullUser(email, password);
                 const newUser = await this.dbSaveUser(trx, initialFullUser.user);
                 const newPlan = await this.dbSavePlan(trx, newUser.id, initialFullUser.plan);
                 await this.dbSaveSchedule(trx, newUser.id, newPlan.id, initialFullUser.schedule);
+
+                return newUser;
             }
         });
     }
 
-    private async dbGetLatestUser(conn: knex, userId: UserId): Promise<User> {
+    private async dbGetUserByEmailAndPassword(conn: knex, email: string, password: string): Promise<User> {
         const userRows = await conn
             .from(Service.USER_TABLE)
             .select(Service.USER_FIELDS)
-            .where("id", userId)
+            .where("email", email)
             .limit(1);
 
         if (userRows.length === 0) {
-            throw new ServiceError(`No user with id ${userId}`);
+            throw new ServiceError(`No user with email ${email} and supplied password`);
+        }
+
+        const userRow = userRows[0];
+
+        return new Promise<User>((resolve, reject) => {
+            bcrypt.compare(password, userRow["password_hash"], (err: Error, same?: boolean) => {
+                if (err) {
+                    return reject(new ServiceError(`Crypto error ${err.message}`));
+                }
+
+                if (!same) {
+                    return reject(new ServiceError(`Invalid password for user ${email}`));
+                }
+
+                resolve(Service.dbUserToUser(userRows[0]));
+            });
+        });
+    }
+
+    private async dbGetUserById(conn: knex, id: UserId): Promise<User> {
+        const userRows = await conn
+            .from(Service.USER_TABLE)
+            .select(Service.USER_FIELDS)
+            .where("id", id)
+            .limit(1);
+
+        if (userRows.length === 0) {
+            throw new ServiceError(`No user with id ${id}`);
         }
 
         return Service.dbUserToUser(userRows[0]);
+    }
+
+    private async dbGetAllActiveUsers(conn: knex): Promise<User[]> {
+        const userRows = await conn
+            .from(Service.USER_TABLE)
+            .select(Service.USER_FIELDS)
+            .whereRaw("(user_json->>'isArchived')::boolean = FALSE");
+
+        return userRows.map((ur: any) => Service.dbUserToUser(ur));
     }
 
     private async dbSaveUser(conn: knex, user: User): Promise<User> {
@@ -1331,12 +1474,31 @@ export class Service {
             .from(Service.USER_TABLE)
             .returning(Service.USER_FIELDS)
             .insert({
-                id: user.id,
-                user_json: Service.userToDbUser(user)
+                user_json: Service.userToDbUser(user),
+                email: user.email,
+                password_hash: user.passwordHash
             });
 
         if (userRows.length === 0) {
             throw new ServiceError(`Could not insert user ${user.id}`);
+        }
+
+        return Service.dbUserToUser(userRows[0]);
+    }
+
+    private async dbUpdateUser(conn: knex, user: User): Promise<User> {
+        const userRows = await conn
+            .from(Service.USER_TABLE)
+            .returning(Service.USER_FIELDS)
+            .update({
+                user_json: Service.userToDbUser(user),
+                email: user.email,
+                password_hash: user.passwordHash
+            })
+            .where("id", user.id);
+
+        if (userRows.length === 0) {
+            throw new ServiceError(`Could not update user ${user.id}`);
         }
 
         return Service.dbUserToUser(userRows[0]);
@@ -1413,8 +1575,13 @@ export class Service {
     }
 
     private static dbUserToUser(userRow: any): User {
+        const dbUser = userRow["user_json"];
+
         const user = {
-            id: userRow.id
+            id: userRow.id,
+            email: userRow.email,
+            passwordHash: userRow.password_hash,
+            isArchived: dbUser.isArchived
         };
 
         return user;
@@ -1422,7 +1589,7 @@ export class Service {
 
     private static userToDbUser(user: User): any {
         return {
-            id: user.id
+            isArchived: user.isArchived
         };
     }
 
@@ -1751,60 +1918,72 @@ export class Service {
         };
     }
 
-    private static getEmptyFullUser(): FullUser {
-        const newFullUser = {
-            user: {
-                id: Service.DEFAULT_USER_ID
-            },
-            plan: {
-                id: -1,
-                version: {
-                    major: 1,
-                    minor: 1
-                },
-                goals: [{
-                    id: 1,
-                    title: "Inbox",
-                    isSystemGoal: true,
-                    description: "Stuff you're working on outside of any big project",
-                    range: GoalRange.LIFETIME,
-                    subgoals: [],
-                    subgoalsById: new Map<GoalId, Goal>(),
-                    subgoalsOrder: [],
-                    metrics: [],
-                    metricsById: new Map<MetricId, Metric>(),
-                    metricsOrder: [],
-                    tasks: [],
-                    tasksById: new Map<TaskId, Task>(),
-                    tasksOrder: [],
-                    boards: [],
-                    isDone: false,
-                    isArchived: false
-                }],
-                goalsOrder: [1],
-                idSerialHack: 1,
-                inboxGoalId: 1,
-                goalsById: new Map<GoalId, Goal>(),
-                metricsById: new Map<MetricId, Metric>(),
-                tasksById: new Map<TaskId, Task>(),
-                subTasksById: new Map<SubTaskId, SubTask>()
-            },
-            schedule: {
-                id: -1,
-                version: {
-                    major: 1,
-                    minor: 1
-                },
-                scheduledTasks: [],
-                collectedMetrics: [],
-                idSerialHack: 0,
-                collectedMetricsByMetricId: new Map<MetricId, CollectedMetric>(),
-                scheduledTasksByTaskId: new Map<TaskId, ScheduledTask>()
-            }
-        };
-        newFullUser.plan.goalsById.set(1, newFullUser.plan.goals[0]);
+    private static async getEmptyFullUser(email: string, password: string): Promise<FullUser> {
+        return new Promise<FullUser>((resolve, reject) => {
+            bcrypt.hash(password, Service.BCRYPT_ROUNDS, (err, passwordHash) => {
 
-        return newFullUser;
+                if (err) {
+                    return reject(new ServiceError(`Crypto error ${err.message}`));
+                }
+
+                const newFullUser = {
+                    user: {
+                        id: -1,
+                        email: email,
+                        passwordHash: passwordHash,
+                        isArchived: false
+                    },
+                    plan: {
+                        id: -1,
+                        version: {
+                            major: 1,
+                            minor: 1
+                        },
+                        goals: [{
+                            id: 1,
+                            title: "Inbox",
+                            isSystemGoal: true,
+                            description: "Stuff you're working on outside of any big project",
+                            range: GoalRange.LIFETIME,
+                            subgoals: [],
+                            subgoalsById: new Map<GoalId, Goal>(),
+                            subgoalsOrder: [],
+                            metrics: [],
+                            metricsById: new Map<MetricId, Metric>(),
+                            metricsOrder: [],
+                            tasks: [],
+                            tasksById: new Map<TaskId, Task>(),
+                            tasksOrder: [],
+                            boards: [],
+                            isDone: false,
+                            isArchived: false
+                        }],
+                        goalsOrder: [1],
+                        idSerialHack: 1,
+                        inboxGoalId: 1,
+                        goalsById: new Map<GoalId, Goal>(),
+                        metricsById: new Map<MetricId, Metric>(),
+                        tasksById: new Map<TaskId, Task>(),
+                        subTasksById: new Map<SubTaskId, SubTask>()
+                    },
+                    schedule: {
+                        id: -1,
+                        version: {
+                            major: 1,
+                            minor: 1
+                        },
+                        scheduledTasks: [],
+                        collectedMetrics: [],
+                        idSerialHack: 0,
+                        collectedMetricsByMetricId: new Map<MetricId, CollectedMetric>(),
+                        scheduledTasksByTaskId: new Map<TaskId, ScheduledTask>()
+                    }
+                };
+                newFullUser.plan.goalsById.set(1, newFullUser.plan.goals[0]);
+
+                resolve(newFullUser);
+            });
+        });
     }
 
     private static deadlineFromRange(rightNow: moment.Moment, range: GoalRange): moment.Moment | undefined {
@@ -1907,6 +2086,61 @@ export class Service {
 
         return subTask;
     }
+}
+
+type RequestHandler<Req, Res> = (ctx: Context, req: Req) => Promise<Res>;
+
+function needsAuth<Req, Res>(_target: Object, _propertyKey: string, descriptor: TypedPropertyDescriptor<RequestHandler<Req, Res>>): TypedPropertyDescriptor<RequestHandler<Req, Res>> {
+    const originalMethod = descriptor.value;
+
+    descriptor.value = async function (ctx: Context, req: Req) {
+
+        const userId = await new Promise<number>((resolve, reject) => {
+            jwt.verify(ctx.auth.token, Service.AUTH_TOKEN_ENCRYPTION_KEY, (err, jwtDecoded) => {
+                if (err) {
+                    return reject(new ServiceError(`Invalid auth token`));
+                }
+
+                resolve((jwtDecoded as any).id as number);
+            });
+        });
+
+        const newCtx = {
+            auth: ctx.auth,
+            userId: userId
+        };
+
+        return await (originalMethod as any).call(this, newCtx, req);
+    };
+
+    return descriptor;
+}
+
+export interface Context {
+    auth: AuthInfo;
+    userId: number;
+}
+
+export interface AuthInfo {
+    token: string;
+}
+
+export interface GetOrCreateUserRequest {
+    email: string;
+    password: string;
+}
+
+export interface GetOrCreateUserResponse {
+    auth: AuthInfo;
+}
+
+export interface ArchiveUserRequest {
+}
+
+export interface ArchiveUserResponse {
+}
+
+export interface GetLatestPlanRequest {
 }
 
 export interface GetLatestPlanResponse {
@@ -2085,6 +2319,9 @@ export interface ArchiveSubTaskRequest {
 
 export interface ArchiveSubTaskResponse {
     plan: Plan;
+}
+
+export interface GetLatestScheduleRequest {
 }
 
 export interface GetLatestScheduleResponse {

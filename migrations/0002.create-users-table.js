@@ -4,7 +4,9 @@ CREATE TABLE core.users (
    id Serial,
    PRIMARY KEY (id),
    -- Core properties
-   user_json Jsonb NOT NULL
+   user_json Jsonb NOT NULL,
+   email TEXT NOT NULL UNIQUE,
+   password_hash VARCHAR(64) NOT NULL
 );
 `);
 

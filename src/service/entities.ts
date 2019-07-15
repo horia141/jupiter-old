@@ -20,6 +20,9 @@ export interface Version {
 
 export interface User {
     id: UserId;
+    email: string;
+    passwordHash: string;
+    isArchived: boolean;
 }
 
 export interface Plan {
