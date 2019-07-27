@@ -1,7 +1,5 @@
 Commands to add:
-* Users are needed!
-  * Commands to register and login as a user!
-  * Commands to remove accounts!
+* Record user login.
 * Complex notion of doneness: boolean, subtask, counter in a range, gauge in a range
 * Notion of in progress at the level of a scheduled task
 * Include urgency in task scheduling

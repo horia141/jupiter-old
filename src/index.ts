@@ -20,7 +20,7 @@ import {
     SubTask,
     Task,
     TaskPriority,
-    TaskUrgency
+    TaskUrgency, User
 } from "./service/entities";
 
 const Command = require('vorpal/dist/command.js');
@@ -30,6 +30,8 @@ declare module "vorpal" {
         actionWithAuth(handler: (vorpal: Vorpal, args: Args, ctx: Context) => Promise<void>): void;
     }
 }
+
+const STANDARD_DATE_FORMAT = "YYYY-MM-DD hh:mm UTC";
 
 async function main() {
 
@@ -79,6 +81,7 @@ async function main() {
             };
             const res = await service.getOrCreateUser(req);
             userAuthInfo = res.auth;
+            vorpal.log(printUser(res.user));
         });
 
     vorpal
@@ -94,6 +97,7 @@ async function main() {
             };
             const res = await service.getOrCreateUser(req);
             userAuthInfo = res.auth;
+            vorpal.log(printUser(res.user));
         });
 
     vorpal
@@ -101,6 +105,38 @@ async function main() {
         .action(async function (this: Vorpal) {
             userAuthInfo = null;
         });
+
+    vorpal
+        .command("user:show")
+        .actionWithAuth(async (vorpal: Vorpal, _args: Args, ctx: Context) => {
+            const req = {};
+            const res = await service.getUser(ctx, req);
+            vorpal.log(printUser(res.user));
+        });
+
+    /*vorpal
+        .command("user:new-vacation <startTime> <endTime>")
+        .actionWithAuth(async (_vorpal: Vorpal, args: Args, ctx: Context) => {
+
+        });
+
+    vorpal
+        .command("user:set-vacation-start-time <vacationId> <startTime>")
+        .actionWithAuth(async (_vorpal: Vorpal, args: Args, ctx: Context) => {
+
+        });
+
+    vorpal
+        .command("user:set-vacation-end-time <vacationId> <endTime>")
+        .actionWithAuth(async (_vorpal: Vorpal, args: Args, ctx: Context) => {
+
+        });
+
+    vorpal
+        .command("user:archive-vacation <vacationId>")
+        .actionWithAuth(async (_vorpal: Vorpal, args: Args, ctx: Context) => {
+
+        });*/
 
     vorpal
         .command("user:quit")
@@ -618,6 +654,28 @@ async function main() {
         .show();
 }
 
+function printUser(user: User): string {
+    const rightNow = moment.utc();
+
+    const res = [];
+
+    res.push(`id=${user.id} ${user.email}`);
+
+    if (user.vacations.some(v => !v.isArchived && v.endDate.isAfter(rightNow))) {
+        res.push("  vacations: ");
+
+        for (const vacation of user.vacations) {
+            if (vacation.isArchived || vacation.endDate.isAfter(rightNow)) {
+                continue;
+            }
+
+            res.push(`   - ${vacation.startDate.format(STANDARD_DATE_FORMAT)} ${vacation.endDate.format(STANDARD_DATE_FORMAT)}`);
+        }
+    }
+
+    return res.join("\n");
+}
+
 function printPlan(plan: Plan): string {
     const res = [];
 
@@ -636,7 +694,7 @@ function printGoal(goal: Goal, indent: number = 0): string {
 
     const indentStr = " ".repeat(indent);
 
-    res.push(`${indentStr}[${goal.id}] ${goal.title} (${goal.range}@${goal.deadline ? goal.deadline.format("YYYY-MM-DD hh:mm UTC") : ""}):`);
+    res.push(`${indentStr}[${goal.id}] ${goal.title} (${goal.range}@${goal.deadline ? goal.deadline.format(STANDARD_DATE_FORMAT) : ""}):`);
 
     if (goal.subgoalsOrder.length > 0) {
         res.push(`${indentStr}  subgoals:`);
@@ -673,7 +731,7 @@ function printTask(task: Task, indent: number): string {
     const res = [];
     const indentStr = " ".repeat(indent);
 
-    res.push(`${indentStr}    [${task.id}] ${task.title} @${task.deadline ? task.deadline.format("YYYY-MM-DD hh:mm UTC") : ""} ${task.priority === TaskPriority.HIGH ? "(high)" : ""} ${task.urgency === TaskUrgency.CRITICAL ? "Must" : "Nice"} ${task.repeatSchedule ? task.repeatSchedule : ""}`);
+    res.push(`${indentStr}    [${task.id}] ${task.title} @${task.deadline ? task.deadline.format(STANDARD_DATE_FORMAT) : ""} ${task.priority === TaskPriority.HIGH ? "(high)" : ""} ${task.urgency === TaskUrgency.CRITICAL ? "Must" : "Nice"} ${task.repeatSchedule ? task.repeatSchedule : ""}`);
 
     if (task.subTasksOrder.length > 0) {
         res.push(`${indentStr}      subtasks:`);

@@ -1,6 +1,7 @@
 import * as moment from "moment";
 
 export type UserId = number;
+export type VacationId = number;
 export type PlanId = number;
 export type GoalId = number;
 export type MetricId = number;
@@ -22,6 +23,14 @@ export interface User {
     id: UserId;
     email: string;
     passwordHash: string;
+    isArchived: boolean;
+    vacations: Vacation[];
+}
+
+export interface Vacation {
+    id: VacationId;
+    startDate: moment.Moment;
+    endDate: moment.Moment;
     isArchived: boolean;
 }
 

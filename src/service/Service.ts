@@ -20,14 +20,16 @@ import {
     Schedule,
     ScheduledTask,
     ScheduledTaskEntry,
-    SubTask, SubTaskId,
+    SubTask,
+    SubTaskId,
     Task,
     TaskId,
     TaskPriority,
     TaskRepeatSchedule,
     TaskUrgency,
     User,
-    UserId
+    UserId,
+    Vacation
 } from "./entities";
 
 export class ServiceError extends Error {
@@ -97,10 +99,10 @@ export class Service {
             throw new ServiceError(`Supplied password is invalid`);
         }
 
-        const fullUser = await this.dbGetOrCreateFullUser(req.email, req.password);
+        const user = await this.dbGetOrCreateUser(req.email, req.password);
 
         const jwtPayload = {
-            id: fullUser.id,
+            id: user.id,
             iat: rightNow.unix(),
             exp: rightNow.add(Service.AUTH_TOKEN_LIFE_HOURS, "hours").unix()
         };
@@ -115,10 +117,21 @@ export class Service {
                 resolve({
                     auth: {
                         token: jwtEncoded
-                    }
+                    },
+                    user: user
                 });
             });
         });
+    }
+
+    @needsAuth
+    public async getUser(ctx: Context, _req: GetUserRequest): Promise<GetUserResponse> {
+
+        const user = await this.dbGetUserById(this.conn, ctx.userId);
+
+        return {
+            user: user
+        };
     }
 
     @needsAuth
@@ -1297,6 +1310,12 @@ export class Service {
                             continue;
                         } else if (task.deadline !== undefined && date.isSameOrAfter(task.deadline)) {
                             continue;
+                        } else if (
+                            task.urgency === TaskUrgency.REGULAR
+                            && user.vacations
+                                .filter(v => !v.isArchived)
+                                .some(v => date.isSameOrAfter(v.startDate) && date.isSameOrBefore(v.endDate))) {
+                            continue;
                         }
 
                         fullUser.schedule.idSerialHack++;
@@ -1393,7 +1412,7 @@ export class Service {
         });
     }
 
-    private async dbGetOrCreateFullUser(email: string, password: string): Promise<User> {
+    private async dbGetOrCreateUser(email: string, password: string): Promise<User> {
         return await this.conn.transaction(async (trx: Transaction) => {
             try {
                 const user = await this.dbGetUserByEmailAndPassword(trx, email, password);
@@ -1581,15 +1600,35 @@ export class Service {
             id: userRow.id,
             email: userRow.email,
             passwordHash: userRow.password_hash,
-            isArchived: dbUser.isArchived
+            isArchived: dbUser.isArchived,
+            vacations: dbUser.vacations.map((v: any) => Service.dbVacationToVacation(v))
         };
 
         return user;
     }
 
+    private static dbVacationToVacation(vacationRow: any): Vacation {
+        return {
+            id: vacationRow.id,
+            startDate: moment.unix(vacationRow.startDate).utc(),
+            endDate: moment.unix(vacationRow.endDate).utc(),
+            isArchived: vacationRow.isArchived
+        };
+    }
+
     private static userToDbUser(user: User): any {
         return {
-            isArchived: user.isArchived
+            isArchived: user.isArchived,
+            vacations: user.vacations.map(v => Service.vacationToDbVacation(v)),
+        };
+    }
+
+    private static vacationToDbVacation(vacation: Vacation): any {
+        return {
+            id: vacation.id,
+            startDate: vacation.startDate.unix(),
+            endDate: vacation.endDate.unix(),
+            isArchived: vacation.isArchived
         };
     }
 
@@ -1931,7 +1970,8 @@ export class Service {
                         id: -1,
                         email: email,
                         passwordHash: passwordHash,
-                        isArchived: false
+                        isArchived: false,
+                        vacations: []
                     },
                     plan: {
                         id: -1,
@@ -2132,6 +2172,14 @@ export interface GetOrCreateUserRequest {
 
 export interface GetOrCreateUserResponse {
     auth: AuthInfo;
+    user: User;
+}
+
+export interface GetUserRequest {
+}
+
+export interface GetUserResponse {
+    user: User;
 }
 
 export interface ArchiveUserRequest {
