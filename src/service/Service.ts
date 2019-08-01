@@ -148,6 +148,41 @@ export class Service {
         return {};
     }
 
+    @needsAuth
+    public async createVacation(ctx: Context, req: CreateVacationRequest): Promise<CreateVacationResponse> {
+
+        const rightNow = moment.utc();
+
+        if (req.startTime.isBefore(rightNow)) {
+            throw new ServiceError("Vacation start date is in the past");
+        } else if (req.endTime.isBefore(req.startTime)) {
+            throw new ServiceError("Vacation end date is before start date");
+        }
+
+        const newVacation: Vacation = {
+            id: -1,
+            startTime: req.startTime,
+            endTime: req.endTime,
+            isArchived: false
+        };
+
+        const newFullUser = await this.dbModifyFullUser(ctx, fullUser => {
+
+            const user = fullUser.user;
+
+            user.idSerialHack++;
+            newVacation.id = user.idSerialHack;
+
+            user.vacations.push(newVacation);
+
+            return [WhatToSave.USER, fullUser];
+        });
+
+        return {
+            user: newFullUser.user
+        };
+    }
+
     // Plans
 
     @needsAuth
@@ -1314,7 +1349,7 @@ export class Service {
                             task.urgency === TaskUrgency.REGULAR
                             && user.vacations
                                 .filter(v => !v.isArchived)
-                                .some(v => date.isSameOrAfter(v.startDate) && date.isSameOrBefore(v.endDate))) {
+                                .some(v => date.isSameOrAfter(v.startTime) && date.isSameOrBefore(v.endTime))) {
                             continue;
                         }
 
@@ -1601,7 +1636,8 @@ export class Service {
             email: userRow.email,
             passwordHash: userRow.password_hash,
             isArchived: dbUser.isArchived,
-            vacations: dbUser.vacations.map((v: any) => Service.dbVacationToVacation(v))
+            vacations: dbUser.vacations.map((v: any) => Service.dbVacationToVacation(v)),
+            idSerialHack: dbUser.idSerialHack
         };
 
         return user;
@@ -1610,8 +1646,8 @@ export class Service {
     private static dbVacationToVacation(vacationRow: any): Vacation {
         return {
             id: vacationRow.id,
-            startDate: moment.unix(vacationRow.startDate).utc(),
-            endDate: moment.unix(vacationRow.endDate).utc(),
+            startTime: moment.unix(vacationRow.startTime).utc(),
+            endTime: moment.unix(vacationRow.endTime).utc(),
             isArchived: vacationRow.isArchived
         };
     }
@@ -1620,14 +1656,15 @@ export class Service {
         return {
             isArchived: user.isArchived,
             vacations: user.vacations.map(v => Service.vacationToDbVacation(v)),
+            idSerialHack: user.idSerialHack
         };
     }
 
     private static vacationToDbVacation(vacation: Vacation): any {
         return {
             id: vacation.id,
-            startDate: vacation.startDate.unix(),
-            endDate: vacation.endDate.unix(),
+            startTime: vacation.startTime.unix(),
+            endTime: vacation.endTime.unix(),
             isArchived: vacation.isArchived
         };
     }
@@ -1971,7 +2008,8 @@ export class Service {
                         email: email,
                         passwordHash: passwordHash,
                         isArchived: false,
-                        vacations: []
+                        vacations: [],
+                        idSerialHack: 1
                     },
                     plan: {
                         id: -1,
@@ -2186,6 +2224,15 @@ export interface ArchiveUserRequest {
 }
 
 export interface ArchiveUserResponse {
+}
+
+export interface CreateVacationRequest {
+    startTime: moment.Moment;
+    endTime: moment.Moment;
+}
+
+export interface CreateVacationResponse {
+    user: User;
 }
 
 export interface GetLatestPlanRequest {

@@ -114,13 +114,21 @@ async function main() {
             vorpal.log(printUser(res.user));
         });
 
-    /*vorpal
+    vorpal
         .command("user:new-vacation <startTime> <endTime>")
-        .actionWithAuth(async (_vorpal: Vorpal, args: Args, ctx: Context) => {
+        .actionWithAuth(async (vorpal: Vorpal, args: Args, ctx: Context) => {
+             const startTime = moment.utc(args.startTime);
+             const endTime = moment.utc(args.endTime);
 
+             const req = {
+                 startTime: startTime,
+                 endTime: endTime
+             };
+             const res = await service.createVacation(ctx, req);
+             vorpal.log(printUser(res.user));
         });
 
-    vorpal
+    /*vorpal
         .command("user:set-vacation-start-time <vacationId> <startTime>")
         .actionWithAuth(async (_vorpal: Vorpal, args: Args, ctx: Context) => {
 
@@ -661,15 +669,15 @@ function printUser(user: User): string {
 
     res.push(`id=${user.id} ${user.email}`);
 
-    if (user.vacations.some(v => !v.isArchived && v.endDate.isAfter(rightNow))) {
+    if (user.vacations.some(v => !v.isArchived && v.endTime.isAfter(rightNow))) {
         res.push("  vacations: ");
 
         for (const vacation of user.vacations) {
-            if (vacation.isArchived || vacation.endDate.isAfter(rightNow)) {
+            if (vacation.isArchived || vacation.endTime.isBefore(rightNow)) {
                 continue;
             }
 
-            res.push(`   - ${vacation.startDate.format(STANDARD_DATE_FORMAT)} ${vacation.endDate.format(STANDARD_DATE_FORMAT)}`);
+            res.push(`   - ${vacation.startTime.format(STANDARD_DATE_FORMAT)} ${vacation.endTime.format(STANDARD_DATE_FORMAT)}`);
         }
     }
 

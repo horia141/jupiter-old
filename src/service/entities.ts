@@ -25,12 +25,13 @@ export interface User {
     passwordHash: string;
     isArchived: boolean;
     vacations: Vacation[];
+    idSerialHack: number;
 }
 
 export interface Vacation {
     id: VacationId;
-    startDate: moment.Moment;
-    endDate: moment.Moment;
+    startTime: moment.Moment;
+    endTime: moment.Moment;
     isArchived: boolean;
 }
 
