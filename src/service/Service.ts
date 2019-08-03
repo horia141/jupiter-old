@@ -29,7 +29,7 @@ import {
     TaskUrgency,
     User,
     UserId,
-    Vacation
+    Vacation, VacationId
 } from "./entities";
 
 export class ServiceError extends Error {
@@ -174,6 +174,65 @@ export class Service {
             newVacation.id = user.idSerialHack;
 
             user.vacations.push(newVacation);
+
+            return [WhatToSave.USER, fullUser];
+        });
+
+        return {
+            user: newFullUser.user
+        };
+    }
+
+    @needsAuth
+    public async updateVacation(ctx: Context, req: UpdateVacationRequest): Promise<UpdateVacationResponse> {
+
+        const rightNow = moment.utc();
+
+        if (req.startTime !== undefined && req.startTime.isBefore(rightNow)) {
+            throw new ServiceError("Vacation start date is in the past");
+        } else if (req.endTime !== undefined && req.endTime.isBefore(rightNow)) {
+            throw new ServiceError("Vacation end date is in the past");
+        } else if (req.startTime !== undefined && req.endTime !== undefined && req.startTime.isAfter(req.endTime)) {
+            throw new ServiceError("Vacation end date is before start date");
+        }
+
+        const newFullUser = await this.dbModifyFullUser(ctx, fullUser => {
+
+            const user = fullUser.user;
+            const vacation = Service.getVacationById(user, req.vacationId);
+
+            if (req.startTime !== undefined && req.endTime !== undefined) {
+                vacation.startTime = req.startTime;
+                vacation.endTime = req.endTime;
+            } else if (req.startTime !== undefined) {
+                if (req.startTime.isAfter(vacation.endTime)) {
+                    throw new ServiceError("Cannot set start date after end date");
+                }
+                vacation.startTime = req.startTime;
+            } else if (req.endTime !== undefined) {
+                if (req.endTime.isBefore(vacation.startTime)) {
+                    throw new ServiceError("Cannot set end date after start date");
+                }
+                vacation.endTime = req.endTime;
+            }
+
+            return [WhatToSave.USER, fullUser];
+        });
+
+        return {
+            user: newFullUser.user
+        };
+    }
+
+    @needsAuth
+    public async archiveVacation(ctx: Context, req: ArchiveVacationRequest): Promise<ArchiveVacationResponse> {
+
+        const newFullUser = await this.dbModifyFullUser(ctx, fullUser => {
+
+            const user = fullUser.user;
+            const vacation = Service.getVacationById(user, req.vacationId);
+
+            vacation.isArchived = true;
 
             return [WhatToSave.USER, fullUser];
         });
@@ -1637,8 +1696,13 @@ export class Service {
             passwordHash: userRow.password_hash,
             isArchived: dbUser.isArchived,
             vacations: dbUser.vacations.map((v: any) => Service.dbVacationToVacation(v)),
-            idSerialHack: dbUser.idSerialHack
+            idSerialHack: dbUser.idSerialHack,
+            vacationsById: new Map<VacationId, Vacation>()
         };
+
+        for (const vacation of user.vacations) {
+            user.vacationsById.set(vacation.id, vacation);
+        }
 
         return user;
     }
@@ -2009,7 +2073,8 @@ export class Service {
                         passwordHash: passwordHash,
                         isArchived: false,
                         vacations: [],
-                        idSerialHack: 1
+                        idSerialHack: 1,
+                        vacationsById: new Map<VacationId, Vacation>()
                     },
                     plan: {
                         id: -1,
@@ -2113,6 +2178,18 @@ export class Service {
             case GoalRange.MONTH:
                 return parentRange;
         }
+    }
+
+    private static getVacationById(user: User, id: VacationId, allowArchived: boolean = false) {
+        const vacation = user.vacationsById.get(id);
+
+        if (vacation === undefined) {
+            throw new CriticalServiceError(`Vacation with id ${id} does not exist`);
+        } else if (vacation.isArchived && !allowArchived) {
+            throw new ServiceError(`Vacation with id ${id} cannot be operated upon since it is archived`);
+        }
+
+        return vacation;
     }
 
     private static getGoalById(plan: Plan, id: GoalId, allowDone: boolean = false, allowArchived: boolean = false): Goal {
@@ -2232,6 +2309,24 @@ export interface CreateVacationRequest {
 }
 
 export interface CreateVacationResponse {
+    user: User;
+}
+
+export interface UpdateVacationRequest {
+    vacationId: VacationId;
+    startTime?: moment.Moment;
+    endTime?: moment.Moment;
+}
+
+export interface UpdateVacationResponse {
+    user: User;
+}
+
+export interface ArchiveVacationRequest {
+    vacationId: VacationId;
+}
+
+export interface ArchiveVacationResponse {
     user: User;
 }
 

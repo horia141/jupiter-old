@@ -26,6 +26,7 @@ export interface User {
     isArchived: boolean;
     vacations: Vacation[];
     idSerialHack: number;
+    vacationsById: Map<VacationId, Vacation>;
 }
 
 export interface Vacation {

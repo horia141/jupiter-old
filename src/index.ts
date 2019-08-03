@@ -128,23 +128,45 @@ async function main() {
              vorpal.log(printUser(res.user));
         });
 
-    /*vorpal
+    vorpal
         .command("user:set-vacation-start-time <vacationId> <startTime>")
-        .actionWithAuth(async (_vorpal: Vorpal, args: Args, ctx: Context) => {
+        .actionWithAuth(async (vorpal: Vorpal, args: Args, ctx: Context) => {
+            const vacationId = args.vacationId;
+            const startTime = moment.utc(args.startTime);
 
+            const req = {
+                vacationId: vacationId,
+                startTime: startTime
+            };
+            const res = await service.updateVacation(ctx, req);
+            vorpal.log(printUser(res.user));
         });
 
     vorpal
         .command("user:set-vacation-end-time <vacationId> <endTime>")
         .actionWithAuth(async (_vorpal: Vorpal, args: Args, ctx: Context) => {
+            const vacationId = args.vacationId;
+            const endTime = moment.utc(args.endTime);
 
+            const req = {
+                vacationId: vacationId,
+                endTime: endTime
+            };
+            const res = await service.updateVacation(ctx, req);
+            vorpal.log(printUser(res.user));
         });
 
     vorpal
         .command("user:archive-vacation <vacationId>")
         .actionWithAuth(async (_vorpal: Vorpal, args: Args, ctx: Context) => {
+            const vacationId = args.vacationId;
 
-        });*/
+            const req = {
+                vacationId: vacationId
+            };
+            const res = await service.archiveVacation(ctx, req);
+            vorpal.log(printUser(res.user));
+        });
 
     vorpal
         .command("user:quit")
@@ -677,7 +699,7 @@ function printUser(user: User): string {
                 continue;
             }
 
-            res.push(`   - ${vacation.startTime.format(STANDARD_DATE_FORMAT)} ${vacation.endTime.format(STANDARD_DATE_FORMAT)}`);
+            res.push(`   - [${vacation.id}] ${vacation.startTime.format(STANDARD_DATE_FORMAT)} ${vacation.endTime.format(STANDARD_DATE_FORMAT)}`);
         }
     }
 
