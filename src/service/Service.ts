@@ -29,7 +29,8 @@ import {
     TaskUrgency,
     User,
     UserId,
-    Vacation, VacationId
+    Vacation,
+    VacationId
 } from "./entities";
 
 export class ServiceError extends Error {
@@ -757,6 +758,7 @@ export class Service {
             subTasksOrder: [],
             donePolicy: undefined,
             inProgress: false,
+            isSuspended: false,
             isArchived: false
         };
 
@@ -932,6 +934,14 @@ export class Service {
                 }
             } else if (req.clearRepeatSchedule) {
                 task.repeatSchedule = undefined;
+            }
+            if (req.isSuspended !== undefined) {
+                if (req.isSuspended && task.isSuspended) {
+                    throw new ServiceError(`Task with id ${task.id} is already suspended`);
+                } else if (!req.isSuspended && !task.isSuspended) {
+                    throw new ServiceError(`Task with id ${task.id} is already unsuspended`);
+                }
+                task.isSuspended = req.isSuspended;
             }
             fullUser.plan.version.minor++;
 
@@ -1410,6 +1420,8 @@ export class Service {
                                 .filter(v => !v.isArchived)
                                 .some(v => date.isSameOrAfter(v.startTime) && date.isSameOrBefore(v.endTime))) {
                             continue;
+                        } else if (task.urgency === TaskUrgency.REGULAR && task.isSuspended) {
+                            continue;
                         }
 
                         fullUser.schedule.idSerialHack++;
@@ -1856,6 +1868,7 @@ export class Service {
             subTasksOrder: taskRow.subTasksOrder,
             donePolicy: taskRow.donePolicy,
             inProgress: taskRow.inProgress,
+            isSuspended: taskRow.isSuspended,
             isArchived: taskRow.isArchived
         };
 
@@ -1949,6 +1962,7 @@ export class Service {
             subTasksOrder: task.subTasksOrder,
             donePolicy: task.donePolicy,
             inProgress: task.inProgress,
+            isSuspended: task.isSuspended,
             isArchived: task.isArchived
         };
     }
@@ -2459,6 +2473,7 @@ export interface UpdateTaskRequest {
     clearDeadline?: boolean;
     repeatSchedule?: TaskRepeatSchedule;
     clearRepeatSchedule?: boolean;
+    isSuspended?: boolean;
 }
 
 export interface UpdateTaskResponse {

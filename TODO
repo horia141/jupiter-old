@@ -2,4 +2,4 @@ Commands to add:
 * Record user login.
 * Complex notion of doneness: boolean, subtask, counter in a range, gauge in a range
 * Notion of in progress at the level of a scheduled task
-* Add notion of suspending goals and tasks!
+* Add notion of suspending the plan, goals and tasks!

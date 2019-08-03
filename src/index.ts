@@ -550,6 +550,34 @@ async function main() {
         });
 
     vorpal
+        .command("plan:unsuspend-task <taskId>")
+        .description("Suspend a repeating task")
+        .actionWithAuth(async (vorpal: Vorpal, args: Args, ctx: Context) => {
+            const taskId = Number.parseInt(args.taskId);
+
+            const req = {
+                taskId: taskId,
+                isSuspended: false
+            };
+            const res = await service.updateTask(ctx, req);
+            vorpal.log(printPlan(res.plan));
+        });
+
+    vorpal
+        .command("plan:suspend-task <taskId>")
+        .description("Suspend a repeating task")
+        .actionWithAuth(async (vorpal: Vorpal, args: Args, ctx: Context) => {
+            const taskId = Number.parseInt(args.taskId);
+
+            const req = {
+                taskId: taskId,
+                isSuspended: true
+            };
+            const res = await service.updateTask(ctx, req);
+            vorpal.log(printPlan(res.plan));
+        });
+
+    vorpal
         .command("plan:archive-task <taskId>")
         .description("Archive a given task")
         .actionWithAuth(async (vorpal: Vorpal, args: Args, ctx: Context) => {
@@ -761,7 +789,7 @@ function printTask(task: Task, indent: number): string {
     const res = [];
     const indentStr = " ".repeat(indent);
 
-    res.push(`${indentStr}    [${task.id}] ${task.title} @${task.deadline ? task.deadline.format(STANDARD_DATE_FORMAT) : ""} ${task.priority === TaskPriority.HIGH ? "(high)" : ""} ${task.urgency === TaskUrgency.CRITICAL ? "Must" : "Nice"} ${task.repeatSchedule ? task.repeatSchedule : ""}`);
+    res.push(`${indentStr}    [${task.id}] ${task.isSuspended ? "s" : ""} ${task.title} @${task.deadline ? task.deadline.format(STANDARD_DATE_FORMAT) : ""} ${task.priority === TaskPriority.HIGH ? "(high)" : ""} ${task.urgency === TaskUrgency.CRITICAL ? "Must" : "Nice"} ${task.repeatSchedule ? task.repeatSchedule : ""}`);
 
     if (task.subTasksOrder.length > 0) {
         res.push(`${indentStr}      subtasks:`);
