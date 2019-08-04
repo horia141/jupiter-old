@@ -256,6 +256,31 @@ export class Service {
     }
 
     @needsAuth
+    public async updatePlan(ctx: Context, req: UpdatePlanRequest): Promise<UpdatePlanResponse> {
+
+        const newFullUser = await this.dbModifyFullUser(ctx, fullUser => {
+            const plan = fullUser.plan;
+
+            if (req.isSuspended !== undefined) {
+                if (req.isSuspended && plan.isSuspended) {
+                    throw new ServiceError("Plan is already suspended");
+                } else if (!req.isSuspended && !plan.isSuspended) {
+                    throw new ServiceError("Plan is already unsuspended");
+                }
+                plan.isSuspended = req.isSuspended;
+            }
+
+            plan.version.minor++;
+
+            return [WhatToSave.PLAN_AND_SCHEDULE, fullUser];
+        });
+
+        return {
+            plan: newFullUser.plan
+        };
+    }
+
+    @needsAuth
     public async createGoal(ctx: Context, req: CreateGoalRequest): Promise<CreateGoalResponse> {
 
         const rightNow = moment.utc();
@@ -1433,6 +1458,8 @@ export class Service {
                             continue;
                         } else if (task.urgency === TaskUrgency.REGULAR && goal.isSuspended) {
                             continue;
+                        } else if (task.urgency === TaskUrgency.REGULAR && plan.isSuspended) {
+                            continue;
                         }
 
                         fullUser.schedule.idSerialHack++;
@@ -1785,6 +1812,7 @@ export class Service {
             version: dbPlan.version,
             goals: dbPlan.goals.map((g: any) => Service.dbGoalToGoal(g)),
             goalsOrder: dbPlan.goalsOrder,
+            isSuspended: dbPlan.isSuspended,
             idSerialHack: dbPlan.idSerialHack,
             inboxGoalId: dbPlan.inboxGoalId,
             goalsById: new Map<GoalId, Goal>(),
@@ -1922,6 +1950,7 @@ export class Service {
             version: plan.version,
             goals: plan.goals.map(g => Service.goalToDbGoal(g)),
             goalsOrder: plan.goalsOrder,
+            isSuspended: plan.isSuspended,
             idSerialHack: plan.idSerialHack,
             inboxGoalId: plan.inboxGoalId
         };
@@ -2130,6 +2159,7 @@ export class Service {
                             isArchived: false
                         }],
                         goalsOrder: [1],
+                        isSuspended: false,
                         idSerialHack: 1,
                         inboxGoalId: 1,
                         goalsById: new Map<GoalId, Goal>(),
@@ -2362,6 +2392,14 @@ export interface GetLatestPlanRequest {
 }
 
 export interface GetLatestPlanResponse {
+    plan: Plan;
+}
+
+export interface UpdatePlanRequest {
+    isSuspended?: boolean;
+}
+
+export interface UpdatePlanResponse {
     plan: Plan;
 }
 

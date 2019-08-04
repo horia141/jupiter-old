@@ -41,6 +41,7 @@ export interface Plan {
     version: Version;
     goals: Goal[];
     goalsOrder: GoalId[];
+    isSuspended: boolean;
     idSerialHack: number;
     inboxGoalId: number;
     goalsById: Map<GoalId, Goal>;

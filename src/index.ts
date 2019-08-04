@@ -190,6 +190,28 @@ async function main() {
         });
 
     vorpal
+        .command("plan:suspend")
+        .description("Suspends the current plan")
+        .actionWithAuth(async (vorpal: Vorpal, _args: Args, ctx: Context) => {
+            const req = {
+                isSuspended: true
+            };
+            const res = await service.updatePlan(ctx, req);
+            vorpal.log(printPlan(res.plan));
+        });
+
+    vorpal
+        .command("plan:unsuspend")
+        .description("Suspends the current plan")
+        .actionWithAuth(async (vorpal: Vorpal, _args: Args, ctx: Context) => {
+            const req = {
+                isSuspended: false
+            };
+            const res = await service.updatePlan(ctx, req);
+            vorpal.log(printPlan(res.plan));
+        });
+
+    vorpal
         .command("plan:new-goal <title...>")
         .description("Adds a new goal to the current plan")
         .option("-d, --description <desc>", "Add a description to the goal")
@@ -765,7 +787,7 @@ function printUser(user: User): string {
 function printPlan(plan: Plan): string {
     const res = [];
 
-    res.push(`id=${plan.id}`);
+    res.push(`id=${plan.id} ${plan.isSuspended ? "s" : ""}`);
 
     for (const goalId of plan.goalsOrder) {
         const goal = plan.goalsById.get(goalId) as Goal;
