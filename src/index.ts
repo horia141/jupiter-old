@@ -746,6 +746,33 @@ async function main() {
         });
 
     vorpal
+        .command("schedule:mark-task-as-in-progress <scheduledTaskEntryId>")
+        .description("Marks a task as in progress")
+        .actionWithAuth(async (vorpal: Vorpal, args: Args, ctx: Context) => {
+            const scheduledTaskEntryId = Number.parseInt(args.scheduledTaskEntryId);
+            const req = {
+                scheduledTaskEntryId: scheduledTaskEntryId,
+                inProgress: true
+            };
+            const res = await service.updateScheduledTaskEntry(ctx, req);
+            vorpal.log(printSchedule(res.schedule, res.plan));
+        });
+
+    vorpal
+        .command("schedule:unmark-task-as-in-progress <scheduledTaskEntryId>")
+        .description("Marks a task as in progress")
+        .actionWithAuth(async (vorpal: Vorpal, args: Args, ctx: Context) => {
+            const scheduledTaskEntryId = Number.parseInt(args.scheduledTaskEntryId);
+            const req = {
+                scheduledTaskEntryId: scheduledTaskEntryId,
+                inProgress: false
+            };
+            const res = await service.updateScheduledTaskEntry(ctx, req);
+            vorpal.log(printSchedule(res.schedule, res.plan));
+        });
+
+
+    vorpal
         .command("schedule:mark-task-as-done <taskId>")
         .description("Marks a task as done")
         .actionWithAuth(async (vorpal: Vorpal, args: Args, ctx: Context) => {
@@ -923,7 +950,7 @@ function printScheduledTask(scheduledTask: ScheduledTask, plan: Plan): string {
     res.push(`    [${scheduledTask.id}] ${task.title}:`);
 
     for (const entry of scheduledTask.entries) {
-        res.push(`     - ${entry.isDone ? "[+]" : "[-]"}`);
+        res.push(`     - [${entry.id}] ${entry.isDone ? "[+]" : "[-]"}${entry.inProgress ? " In Progress" : ""}`);
     }
 
     return res.join("\n");

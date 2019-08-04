@@ -171,6 +171,7 @@ export interface Schedule {
     idSerialHack: number;
     collectedMetricsByMetricId: Map<MetricId, CollectedMetric>;
     scheduledTasksByTaskId: Map<TaskId, ScheduledTask>;
+    scheduledTaskEntriesById: Map<ScheduledTaskEntryId, ScheduledTaskEntry>;
 }
 
 export interface CollectedMetric {
@@ -195,6 +196,7 @@ export interface ScheduledTask {
 export interface ScheduledTaskEntry {
     id: ScheduledTaskEntryId;
     scheduledTaskId: ScheduledTaskId;
+    inProgress: boolean;
     isDone: boolean;
     repeatScheduleAt: moment.Moment;
 }

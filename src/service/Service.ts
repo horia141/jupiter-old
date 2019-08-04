@@ -19,7 +19,7 @@ import {
     PlanId,
     Schedule,
     ScheduledTask,
-    ScheduledTaskEntry,
+    ScheduledTaskEntry, ScheduledTaskEntryId, ScheduledTaskId,
     SubTask,
     SubTaskId,
     Task,
@@ -801,6 +801,7 @@ export class Service {
             entries: [{
                 id: -1,
                 scheduledTaskId: -1,
+                inProgress: false,
                 isDone: false,
                 repeatScheduleAt: rightNow.startOf("day")
             }]
@@ -830,6 +831,7 @@ export class Service {
 
             schedule.scheduledTasks.push(newScheduledTask);
             schedule.scheduledTasksByTaskId.set(newTask.id, newScheduledTask);
+            schedule.scheduledTaskEntriesById.set(newScheduledTask.entries[0].id, newScheduledTask.entries[0]);
 
             plan.version.minor++;
             schedule.version.minor++;
@@ -956,6 +958,7 @@ export class Service {
                     const newScheduledTaskEntry: ScheduledTaskEntry = {
                         id: -1,
                         scheduledTaskId: scheduledTask.id,
+                        inProgress: false,
                         isDone: false,
                         repeatScheduleAt: rightNow.startOf("day")
                     };
@@ -1381,6 +1384,34 @@ export class Service {
         };
     }
 
+    @needsAuth
+    public async updateScheduledTaskEntry(ctx: Context, req: UpdateScheduledTaskEntryRequest): Promise<UpdateScheduledTaskEntryResponse> {
+
+        const newFullUser = await this.dbModifyFullUser(ctx, fullUser => {
+            const schedule = fullUser.schedule;
+
+            const scheduledTaskEntry = Service.getScheduledTaskEntryById(schedule, req.scheduledTaskEntryId);
+
+            if (req.inProgress !== undefined) {
+                if (req.inProgress && scheduledTaskEntry.inProgress) {
+                    throw new ServiceError(`Scheduled task entry with id ${scheduledTaskEntry.id} is already in progress`);
+                } else if (!req.inProgress && !scheduledTaskEntry.inProgress) {
+                    throw new ServiceError(`Scheduled task entry with id ${scheduledTaskEntry.id} is already not in progress`);
+                }
+                scheduledTaskEntry.inProgress = req.inProgress;
+            }
+
+            schedule.version.minor++;
+
+            return [WhatToSave.SCHEDULE, fullUser];
+        });
+
+        return {
+            plan: newFullUser.plan,
+            schedule: newFullUser.schedule
+        };
+    }
+
     private async updateScheduleWithRepeatingTasks(): Promise<void> {
 
         function shouldAddRepeatedTaskToScheduleBasedOnDate(date: moment.Moment, repeatSchedule: TaskRepeatSchedule): boolean {
@@ -1465,6 +1496,7 @@ export class Service {
                         scheduledTask.entries.push({
                             id: fullUser.schedule.idSerialHack,
                             scheduledTaskId: scheduledTask.id,
+                            inProgress: false,
                             isDone: false,
                             repeatScheduleAt: date
                         });
@@ -2054,6 +2086,7 @@ export class Service {
                         return {
                             id: ste.id,
                             scheduledTaskId: ste.scheduledTaskId,
+                            inProgress: ste.inProgress,
                             isDone: ste.isDone,
                             repeatScheduleAt: moment.unix(ste.repeatScheduleAt).utc()
                         };
@@ -2061,8 +2094,9 @@ export class Service {
                 };
             }),
             idSerialHack: dbSchedule.idSerialHack,
-            collectedMetricsByMetricId: new Map<number, CollectedMetric>(),
-            scheduledTasksByTaskId: new Map<number, ScheduledTask>()
+            collectedMetricsByMetricId: new Map<MetricId, CollectedMetric>(),
+            scheduledTasksByTaskId: new Map<TaskId, ScheduledTask>(),
+            scheduledTaskEntriesById: new Map<ScheduledTaskEntryId, ScheduledTaskEntry>()
         };
 
         for (const collectedMetric of schedule.collectedMetrics) {
@@ -2071,6 +2105,10 @@ export class Service {
 
         for (const scheduledTask of schedule.scheduledTasks) {
             schedule.scheduledTasksByTaskId.set(scheduledTask.taskId, scheduledTask);
+
+            for (const scheduledTaskEntry of scheduledTask.entries) {
+                schedule.scheduledTaskEntriesById.set(scheduledTaskEntry.id, scheduledTaskEntry);
+            }
         }
 
         return schedule;
@@ -2101,6 +2139,7 @@ export class Service {
                         return {
                             id: ste.id,
                             scheduledTaskId: ste.scheduledTaskId,
+                            inProgress: ste.inProgress,
                             isDone: ste.isDone,
                             repeatScheduleAt: ste.repeatScheduleAt.unix()
                         };
@@ -2174,7 +2213,8 @@ export class Service {
                         collectedMetrics: [],
                         idSerialHack: 0,
                         collectedMetricsByMetricId: new Map<MetricId, CollectedMetric>(),
-                        scheduledTasksByTaskId: new Map<TaskId, ScheduledTask>()
+                        scheduledTasksByTaskId: new Map<TaskId, ScheduledTask>(),
+                        scheduledTaskEntriesById: new Map<ScheduledTaskEntryId, ScheduledTaskEntry>()
                     }
                 };
                 newFullUser.plan.goalsById.set(1, newFullUser.plan.goals[0]);
@@ -2295,6 +2335,16 @@ export class Service {
         }
 
         return subTask;
+    }
+
+    private static getScheduledTaskEntryById(schedule: Schedule, id: ScheduledTaskId): ScheduledTaskEntry {
+        const scheduledTaskEntry = schedule.scheduledTaskEntriesById.get(id);
+
+        if (scheduledTaskEntry === undefined) {
+            throw new CriticalServiceError(`Scheduled task entry with id ${id} does not exist`);
+        }
+
+        return scheduledTaskEntry;
     }
 }
 
@@ -2599,6 +2649,16 @@ export interface RecordForMetricRequest {
 }
 
 export interface RecordForMetricResponse {
+    plan: Plan;
+    schedule: Schedule;
+}
+
+export interface UpdateScheduledTaskEntryRequest {
+    scheduledTaskEntryId: number;
+    inProgress?: boolean;
+}
+
+export interface UpdateScheduledTaskEntryResponse {
     plan: Plan;
     schedule: Schedule;
 }
