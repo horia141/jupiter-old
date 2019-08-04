@@ -67,6 +67,7 @@ export interface Goal {
     tasksById: Map<TaskId, Task>;
     tasksOrder: TaskId[];
     boards: Board[];
+    isSuspended: boolean;
     isDone: boolean;
     isArchived: boolean;
 }

@@ -285,6 +285,34 @@ async function main() {
         });
 
     vorpal
+        .command("plan:suspend-goal <goalId>")
+        .description("Suspend a goal")
+        .actionWithAuth(async (vorpal: Vorpal, args: Args, ctx: Context) => {
+            const goalId = Number.parseInt(args.goalId);
+
+            const req = {
+                goalId: goalId,
+                isSuspended: true
+            };
+            const res = await service.updateGoal(ctx, req);
+            vorpal.log(printPlan(res.plan));
+        });
+
+    vorpal
+        .command("plan:unsuspend-goal <goalId>")
+        .description("Suspend a repeating task")
+        .actionWithAuth(async (vorpal: Vorpal, args: Args, ctx: Context) => {
+            const goalId = Number.parseInt(args.goalId);
+
+            const req = {
+                goalId: goalId,
+                isSuspended: false
+            };
+            const res = await service.updateGoal(ctx, req);
+            vorpal.log(printPlan(res.plan));
+        });
+
+    vorpal
         .command("plan:mark-goal-as-done <goalId>")
         .description("Mark a goal as done")
         .actionWithAuth(async (vorpal: Vorpal, args: Args, ctx: Context) => {
@@ -550,20 +578,6 @@ async function main() {
         });
 
     vorpal
-        .command("plan:unsuspend-task <taskId>")
-        .description("Suspend a repeating task")
-        .actionWithAuth(async (vorpal: Vorpal, args: Args, ctx: Context) => {
-            const taskId = Number.parseInt(args.taskId);
-
-            const req = {
-                taskId: taskId,
-                isSuspended: false
-            };
-            const res = await service.updateTask(ctx, req);
-            vorpal.log(printPlan(res.plan));
-        });
-
-    vorpal
         .command("plan:suspend-task <taskId>")
         .description("Suspend a repeating task")
         .actionWithAuth(async (vorpal: Vorpal, args: Args, ctx: Context) => {
@@ -572,6 +586,20 @@ async function main() {
             const req = {
                 taskId: taskId,
                 isSuspended: true
+            };
+            const res = await service.updateTask(ctx, req);
+            vorpal.log(printPlan(res.plan));
+        });
+
+    vorpal
+        .command("plan:unsuspend-task <taskId>")
+        .description("Suspend a repeating task")
+        .actionWithAuth(async (vorpal: Vorpal, args: Args, ctx: Context) => {
+            const taskId = Number.parseInt(args.taskId);
+
+            const req = {
+                taskId: taskId,
+                isSuspended: false
             };
             const res = await service.updateTask(ctx, req);
             vorpal.log(printPlan(res.plan));
@@ -752,7 +780,7 @@ function printGoal(goal: Goal, indent: number = 0): string {
 
     const indentStr = " ".repeat(indent);
 
-    res.push(`${indentStr}[${goal.id}] ${goal.title} (${goal.range}@${goal.deadline ? goal.deadline.format(STANDARD_DATE_FORMAT) : ""}):`);
+    res.push(`${indentStr}[${goal.id}] ${goal.isSuspended ? "s " : ""}${goal.title} (${goal.range}@${goal.deadline ? goal.deadline.format(STANDARD_DATE_FORMAT) : ""}):`);
 
     if (goal.subgoalsOrder.length > 0) {
         res.push(`${indentStr}  subgoals:`);
@@ -789,7 +817,7 @@ function printTask(task: Task, indent: number): string {
     const res = [];
     const indentStr = " ".repeat(indent);
 
-    res.push(`${indentStr}    [${task.id}] ${task.isSuspended ? "s" : ""} ${task.title} @${task.deadline ? task.deadline.format(STANDARD_DATE_FORMAT) : ""} ${task.priority === TaskPriority.HIGH ? "(high)" : ""} ${task.urgency === TaskUrgency.CRITICAL ? "Must" : "Nice"} ${task.repeatSchedule ? task.repeatSchedule : ""}`);
+    res.push(`${indentStr}    [${task.id}] ${task.isSuspended ? "s " : ""}${task.title} @${task.deadline ? task.deadline.format(STANDARD_DATE_FORMAT) : ""} ${task.priority === TaskPriority.HIGH ? "(high)" : ""} ${task.urgency === TaskUrgency.CRITICAL ? "Must" : "Nice"} ${task.repeatSchedule ? task.repeatSchedule : ""}`);
 
     if (task.subTasksOrder.length > 0) {
         res.push(`${indentStr}      subtasks:`);

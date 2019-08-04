@@ -278,6 +278,7 @@ export class Service {
             tasksById: new Map<TaskId, Task>(),
             tasksOrder: [],
             boards: [],
+            isSuspended: false,
             isDone: false,
             isArchived: false
         };
@@ -507,6 +508,14 @@ export class Service {
             if (req.range !== undefined) {
                 goal.range = req.range;
                 goal.deadline = Service.deadlineFromRange(rightNow, req.range);
+            }
+            if (req.isSuspended !== undefined) {
+                if (req.isSuspended && goal.isSuspended) {
+                    throw new ServiceError(`Goal with id ${goal.id} is already suspended`);
+                } else if (!req.isSuspended && !goal.isSuspended) {
+                    throw new ServiceError(`Goal with id ${goal.id} is already unsuspended`);
+                }
+                goal.isSuspended = req.isSuspended;
             }
             fullUser.plan.version.minor++;
 
@@ -1422,6 +1431,8 @@ export class Service {
                             continue;
                         } else if (task.urgency === TaskUrgency.REGULAR && task.isSuspended) {
                             continue;
+                        } else if (task.urgency === TaskUrgency.REGULAR && goal.isSuspended) {
+                            continue;
                         }
 
                         fullUser.schedule.idSerialHack++;
@@ -1825,6 +1836,7 @@ export class Service {
             tasksById: new Map<TaskId, Task>(),
             tasksOrder: goalRow.tasksOrder,
             boards: goalRow.boards.map((b: any) => Service.dbBoardToBoard(b)),
+            isSuspended: goalRow.isSuspended,
             isDone: goalRow.isDone,
             isArchived: goalRow.isArchived
         };
@@ -1931,6 +1943,7 @@ export class Service {
             tasks: goal.tasks.map(t => Service.taskToDbTask(t)),
             tasksOrder: goal.tasksOrder,
             boards: goal.boards.map(b => Service.boardToDbBoard(b)),
+            isSuspended: goal.isSuspended,
             isDone: goal.isDone,
             isArchived: goal.isArchived
         };
@@ -2112,6 +2125,7 @@ export class Service {
                             tasksById: new Map<TaskId, Task>(),
                             tasksOrder: [],
                             boards: [],
+                            isSuspended: false,
                             isDone: false,
                             isArchived: false
                         }],
@@ -2378,6 +2392,7 @@ export interface UpdateGoalRequest {
     title?: string;
     description?: string;
     range?: GoalRange;
+    isSuspended?: boolean;
 }
 
 export interface UpdateGoalResponse {
