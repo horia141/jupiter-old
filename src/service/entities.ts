@@ -113,7 +113,6 @@ export interface Task {
     subTasksById: Map<SubTaskId, SubTask>;
     subTasksOrder: SubTaskId[];
     donePolicy?: any;
-    inProgress: boolean;
     isSuspended: boolean;
     isArchived: boolean;
 }

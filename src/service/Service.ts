@@ -791,7 +791,6 @@ export class Service {
             subTasksById: new Map<SubTaskId, SubTask>(),
             subTasksOrder: [],
             donePolicy: undefined,
-            inProgress: false,
             isSuspended: false,
             isArchived: false
         };
@@ -1907,7 +1906,6 @@ export class Service {
             subTasksById: new Map<SubTaskId, SubTask>(),
             subTasksOrder: taskRow.subTasksOrder,
             donePolicy: taskRow.donePolicy,
-            inProgress: taskRow.inProgress,
             isSuspended: taskRow.isSuspended,
             isArchived: taskRow.isArchived
         };
@@ -2003,7 +2001,6 @@ export class Service {
             subTasks: task.subTasks.map(st => Service.subTaskToDbSubTask(st)),
             subTasksOrder: task.subTasksOrder,
             donePolicy: task.donePolicy,
-            inProgress: task.inProgress,
             isSuspended: task.isSuspended,
             isArchived: task.isArchived
         };
