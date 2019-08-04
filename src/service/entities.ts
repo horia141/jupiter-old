@@ -108,7 +108,7 @@ export interface Task {
     urgency: TaskUrgency;
     deadline?: moment.Moment;
     repeatSchedule?: TaskRepeatSchedule;
-    reminderPolicy?: any;
+    reminderPolicy: TaskReminderPolicy;
     subTasks: SubTask[];
     subTasksById: Map<SubTaskId, SubTask>;
     subTasksOrder: SubTaskId[];
@@ -145,6 +145,17 @@ export enum TaskRepeatSchedule {
 
 export function getTaskRepeatSchedule(): Array<TaskRepeatSchedule> {
     return [TaskRepeatSchedule.DAILY, TaskRepeatSchedule.WEEKLY, TaskRepeatSchedule.MONTHLY, TaskRepeatSchedule.QUARTERLY, TaskRepeatSchedule.YEARLY];
+}
+
+export enum TaskReminderPolicy {
+    QUARTER_BEFORE = "quarter-before",
+    MONTH_BEFORE = "month-before",
+    WEEK_BEFORE = "week-before",
+    DAY_BEFORE = "day-before"
+}
+
+export function getTaskReminderPolicy(): Array<TaskReminderPolicy> {
+    return [TaskReminderPolicy.QUARTER_BEFORE, TaskReminderPolicy.MONTH_BEFORE, TaskReminderPolicy.WEEK_BEFORE, TaskReminderPolicy.DAY_BEFORE];
 }
 
 export interface SubTask {

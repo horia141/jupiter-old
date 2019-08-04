@@ -8,6 +8,7 @@ import {
     CollectedMetric,
     getGoalRange,
     getTaskPriority,
+    getTaskReminderPolicy,
     getTaskRepeatSchedule,
     getTaskUrgency,
     Goal,
@@ -20,7 +21,9 @@ import {
     SubTask,
     Task,
     TaskPriority,
-    TaskUrgency, User
+    TaskReminderPolicy,
+    TaskUrgency,
+    User
 } from "./service/entities";
 
 const Command = require('vorpal/dist/command.js');
@@ -449,6 +452,7 @@ async function main() {
         .option("-u, --urgency <urgency>", "Assigns an urgency to the task", getTaskUrgency())
         .option("-d, --deadline <deadlineTime>", "Specifies a deadline in YYYY-MM-DD HH:mm")
         .option("-r, --repeatSchedule <schedule>", "Makes this task repeat according to a schedule", getTaskRepeatSchedule())
+        .option("-m, --reminderPolicy <reminderPolicy>", "Controls when you'll be reminded of a task", getTaskReminderPolicy())
         .actionWithAuth(async (vorpal: Vorpal, args: Args, ctx: Context) => {
             const goalId = args.options.goal !== undefined ? Number.parseInt(args.options.goal) : undefined;
             const title = args.title.join(" ");
@@ -457,11 +461,15 @@ async function main() {
             const urgency = args.options.urgency !== undefined ? (args.options.urgency as TaskUrgency) : TaskUrgency.REGULAR;
             const deadline = args.options.deadline !== undefined ? moment.utc(args.options.deadline) : undefined;
             const repeatSchedule = args.options.repeatSchedule;
+            const reminderPolicy = args.options.reminderPolicy !== undefined ? (args.options.reminderPolicy as TaskReminderPolicy) : TaskReminderPolicy.WEEK_BEFORE
             if (getTaskPriority().indexOf(priority) === -1) {
                 throw new Error(`Invalid task priority ${priority}`);
             }
             if (repeatSchedule !== undefined && getTaskRepeatSchedule().indexOf(repeatSchedule) === -1) {
                 throw new Error(`Invalid task repeat schedule ${repeatSchedule}`);
+            }
+            if (getTaskReminderPolicy().indexOf(reminderPolicy) === -1) {
+                throw new Error(`Invalid reminder policy ${reminderPolicy}`);
             }
 
             const req = {
@@ -471,7 +479,8 @@ async function main() {
                 priority: priority,
                 urgency: urgency,
                 deadline: deadline,
-                repeatSchedule: repeatSchedule
+                repeatSchedule: repeatSchedule,
+                reminderPolicy: reminderPolicy
             };
             const res = await service.createTask(ctx, req);
             vorpal.log(printPlan(res.plan));
@@ -594,6 +603,24 @@ async function main() {
                 taskId: taskId,
                 repeatSchedule: repeatSchedule,
                 clearRepeatSchedule: clearRepeatSchedule
+            };
+            const res = await service.updateTask(ctx, req);
+            vorpal.log(printPlan(res.plan));
+        });
+
+    vorpal
+        .command("plan:set-task-reminder-policy <taskId> <reminderPolicy>")
+        .description("Change the reminder policy for a task")
+        .actionWithAuth(async (vorpal: Vorpal, args: Args, ctx: Context) => {
+            const taskId = Number.parseInt(args.taskId);
+            const reminderPolicy = args.reminderPolicy;
+            if (getTaskReminderPolicy().indexOf(reminderPolicy) === -1) {
+                throw new Error(`Invalid task reminder policy ${reminderPolicy}`);
+            }
+
+            const req = {
+                taskId: taskId,
+                reminderPolicy: reminderPolicy
             };
             const res = await service.updateTask(ctx, req);
             vorpal.log(printPlan(res.plan));
@@ -866,7 +893,7 @@ function printTask(task: Task, indent: number): string {
     const res = [];
     const indentStr = " ".repeat(indent);
 
-    res.push(`${indentStr}    [${task.id}] ${task.isSuspended ? "s " : ""}${task.title} @${task.deadline ? task.deadline.format(STANDARD_DATE_FORMAT) : ""} ${task.priority === TaskPriority.HIGH ? "(high)" : ""} ${task.urgency === TaskUrgency.CRITICAL ? "Must" : "Nice"} ${task.repeatSchedule ? task.repeatSchedule : ""}`);
+    res.push(`${indentStr}    [${task.id}] ${task.isSuspended ? "s " : ""}${task.title} @${task.deadline ? task.deadline.format(STANDARD_DATE_FORMAT) : ""} ${task.priority === TaskPriority.HIGH ? "(high)" : ""} ${task.urgency === TaskUrgency.CRITICAL ? "Must" : "Nice"} ${task.repeatSchedule ? task.repeatSchedule : ""} ${task.reminderPolicy}`);
 
     if (task.subTasksOrder.length > 0) {
         res.push(`${indentStr}      subtasks:`);

@@ -19,12 +19,14 @@ import {
     PlanId,
     Schedule,
     ScheduledTask,
-    ScheduledTaskEntry, ScheduledTaskEntryId, ScheduledTaskId,
+    ScheduledTaskEntry,
+    ScheduledTaskEntryId,
+    ScheduledTaskId,
     SubTask,
     SubTaskId,
     Task,
     TaskId,
-    TaskPriority,
+    TaskPriority, TaskReminderPolicy,
     TaskRepeatSchedule,
     TaskUrgency,
     User,
@@ -786,7 +788,7 @@ export class Service {
             urgency: req.urgency,
             deadline: req.deadline,
             repeatSchedule: req.repeatSchedule,
-            reminderPolicy: undefined,
+            reminderPolicy: req.reminderPolicy,
             subTasks: [],
             subTasksById: new Map<SubTaskId, SubTask>(),
             subTasksOrder: [],
@@ -970,6 +972,9 @@ export class Service {
                 }
             } else if (req.clearRepeatSchedule) {
                 task.repeatSchedule = undefined;
+            }
+            if (req.reminderPolicy !== undefined) {
+                task.reminderPolicy = req.reminderPolicy;
             }
             if (req.isSuspended !== undefined) {
                 if (req.isSuspended && task.isSuspended) {
@@ -2547,6 +2552,7 @@ export interface CreateTaskRequest {
     urgency: TaskUrgency;
     deadline?: moment.Moment,
     repeatSchedule?: TaskRepeatSchedule;
+    reminderPolicy: TaskReminderPolicy;
 }
 
 export interface CreateTaskResponse {
@@ -2572,6 +2578,7 @@ export interface UpdateTaskRequest {
     deadline?: moment.Moment;
     clearDeadline?: boolean;
     repeatSchedule?: TaskRepeatSchedule;
+    reminderPolicy?: TaskReminderPolicy;
     clearRepeatSchedule?: boolean;
     isSuspended?: boolean;
 }
