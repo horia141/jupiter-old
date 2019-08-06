@@ -7,6 +7,7 @@ import {AuthInfo, Context, Service} from "./service/Service";
 import {
     CollectedMetric,
     getGoalRange,
+    getTaskDonePolicyType,
     getTaskPriority,
     getTaskReminderPolicy,
     getTaskRepeatSchedule,
@@ -18,8 +19,8 @@ import {
     Plan,
     Schedule,
     ScheduledTask,
-    SubTask,
     Task,
+    TaskDonePolicyType,
     TaskPriority,
     TaskReminderPolicy,
     TaskUrgency,
@@ -453,6 +454,7 @@ async function main() {
         .option("-d, --deadline <deadlineTime>", "Specifies a deadline in YYYY-MM-DD HH:mm")
         .option("-r, --repeatSchedule <schedule>", "Makes this task repeat according to a schedule", getTaskRepeatSchedule())
         .option("-m, --reminderPolicy <reminderPolicy>", "Controls when you'll be reminded of a task", getTaskReminderPolicy())
+        .option("-d, --donePolicy <donePolicy>", "Controls the way the job is considered done", getTaskDonePolicyType())
         .actionWithAuth(async (vorpal: Vorpal, args: Args, ctx: Context) => {
             const goalId = args.options.goal !== undefined ? Number.parseInt(args.options.goal) : undefined;
             const title = args.title.join(" ");
@@ -461,7 +463,8 @@ async function main() {
             const urgency = args.options.urgency !== undefined ? (args.options.urgency as TaskUrgency) : TaskUrgency.REGULAR;
             const deadline = args.options.deadline !== undefined ? moment.utc(args.options.deadline) : undefined;
             const repeatSchedule = args.options.repeatSchedule;
-            const reminderPolicy = args.options.reminderPolicy !== undefined ? (args.options.reminderPolicy as TaskReminderPolicy) : TaskReminderPolicy.WEEK_BEFORE
+            const reminderPolicy = args.options.reminderPolicy !== undefined ? (args.options.reminderPolicy as TaskReminderPolicy) : TaskReminderPolicy.WEEK_BEFORE;
+            const donePolicyType = args.options.donePolicy !== undefined ? (args.options.donePolicy as TaskDonePolicyType) : TaskDonePolicyType.BOOLEAN;
             if (getTaskPriority().indexOf(priority) === -1) {
                 throw new Error(`Invalid task priority ${priority}`);
             }
@@ -470,6 +473,9 @@ async function main() {
             }
             if (getTaskReminderPolicy().indexOf(reminderPolicy) === -1) {
                 throw new Error(`Invalid reminder policy ${reminderPolicy}`);
+            }
+            if (getTaskDonePolicyType().indexOf(donePolicyType) === -1) {
+                throw new Error(`Invalid task done policy ${donePolicyType}`);
             }
 
             const req = {
@@ -480,7 +486,8 @@ async function main() {
                 urgency: urgency,
                 deadline: deadline,
                 repeatSchedule: repeatSchedule,
-                reminderPolicy: reminderPolicy
+                reminderPolicy: reminderPolicy,
+                donePolicyType: donePolicyType
             };
             const res = await service.createTask(ctx, req);
             vorpal.log(printPlan(res.plan));
@@ -667,7 +674,7 @@ async function main() {
             vorpal.log(printPlan(res.plan));
         });
 
-    vorpal
+    /*vorpal
         .command("plan:new-subtask <taskId> <title...>")
         .description("Add a new subtask to a task")
         .option("-c, --childOf <parentSubTaskId>", "The subtask of taskId to nest this one under")
@@ -735,7 +742,7 @@ async function main() {
             };
             const res = await service.archiveSubTask(ctx, req);
             vorpal.log(printPlan(res.plan));
-        });
+        });*/
 
     vorpal
         .command("schedule:show")
@@ -893,21 +900,21 @@ function printTask(task: Task, indent: number): string {
     const res = [];
     const indentStr = " ".repeat(indent);
 
-    res.push(`${indentStr}    [${task.id}] ${task.isSuspended ? "s " : ""}${task.title} @${task.deadline ? task.deadline.format(STANDARD_DATE_FORMAT) : ""} ${task.priority === TaskPriority.HIGH ? "(high)" : ""} ${task.urgency === TaskUrgency.CRITICAL ? "Must" : "Nice"} ${task.repeatSchedule ? task.repeatSchedule : ""} ${task.reminderPolicy}`);
+    res.push(`${indentStr}    [${task.id}] ${task.isSuspended ? "s " : ""}${task.title} ${task.donePolicy.type} @${task.deadline ? task.deadline.format(STANDARD_DATE_FORMAT) : ""} ${task.priority === TaskPriority.HIGH ? "(high)" : ""} ${task.urgency === TaskUrgency.CRITICAL ? "Must" : "Nice"} ${task.repeatSchedule ? task.repeatSchedule : ""} ${task.reminderPolicy}`);
 
-    if (task.subTasksOrder.length > 0) {
+    /*if (task.subTasksOrder.length > 0) {
         res.push(`${indentStr}      subtasks:`);
 
         for (const subTaskId of task.subTasksOrder) {
             const subTask = task.subTasksById.get(subTaskId) as SubTask;
             res.push(printSubTask(subTask, indent + 8));
         }
-    }
+    }*/
 
     return res.join("\n");
 }
 
-function printSubTask(subTask: SubTask, indent: number): string {
+/*function printSubTask(subTask: SubTask, indent: number): string {
     const res = [];
     const indentStr = " ".repeat(indent);
 
@@ -921,7 +928,7 @@ function printSubTask(subTask: SubTask, indent: number): string {
     }
 
     return res.join("\n");
-}
+}*/
 
 function printSchedule(schedule: Schedule, plan: Plan): string {
     const res = [];

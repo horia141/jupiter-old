@@ -109,10 +109,7 @@ export interface Task {
     deadline?: moment.Moment;
     repeatSchedule?: TaskRepeatSchedule;
     reminderPolicy: TaskReminderPolicy;
-    subTasks: SubTask[];
-    subTasksById: Map<SubTaskId, SubTask>;
-    subTasksOrder: SubTaskId[];
-    donePolicy?: any;
+    donePolicy: TaskDonePolicy;
     isSuspended: boolean;
     isArchived: boolean;
 }
@@ -156,6 +153,60 @@ export enum TaskReminderPolicy {
 
 export function getTaskReminderPolicy(): Array<TaskReminderPolicy> {
     return [TaskReminderPolicy.QUARTER_BEFORE, TaskReminderPolicy.MONTH_BEFORE, TaskReminderPolicy.WEEK_BEFORE, TaskReminderPolicy.DAY_BEFORE];
+}
+
+export interface TaskDonePolicy {
+    type: TaskDonePolicyType;
+    boolean?: BooleanPolicy;
+    subtasks?: SubtasksPolicy;
+    counter?: CounterPolicy;
+    gauge?: GaugePolicy;
+}
+
+export enum TaskDonePolicyType {
+    BOOLEAN = "boolean",
+    SUBTASKS = "subtasks",
+    COUNTER = "counter",
+    GAUGE = "gauge"
+}
+
+export function getTaskDonePolicyType(): Array<TaskDonePolicyType> {
+    return [TaskDonePolicyType.BOOLEAN, TaskDonePolicyType.SUBTASKS, TaskDonePolicyType.COUNTER, TaskDonePolicyType.GAUGE];
+}
+
+export interface BooleanPolicy {
+}
+
+export interface SubtasksPolicy {
+    subTasks: SubTask[];
+    subTasksOrder: SubTaskId[];
+    subTasksById: Map<SubTaskId, SubTask>;
+}
+
+export interface CounterPolicy {
+    type: CounterPolicyType;
+    lowerLimit?: number;
+    upperLimit?: number;
+}
+
+export enum CounterPolicyType {
+    EXACTLY = "exactly",
+    AT_MOST = "at-most",
+    AT_LEAST = "at-least",
+    BETWEEN = "between"
+}
+
+export interface GaugePolicy {
+    type: GaugePolicyType;
+    lowerLimit?: number;
+    upperLimit?: number;
+}
+
+export enum GaugePolicyType {
+    EXACTLY = "exactly",
+    AT_MOST = "at-most",
+    AT_LEAST = "at-least",
+    BETWEEN = "between"
 }
 
 export interface SubTask {

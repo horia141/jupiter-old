@@ -7,8 +7,11 @@ import * as jwt from "jsonwebtoken";
 
 import {
     Board,
+    BooleanPolicy,
     CollectedMetric,
     CollectedMetricEntry,
+    CounterPolicy,
+    GaugePolicy,
     Goal,
     GoalId,
     GoalRange,
@@ -24,9 +27,13 @@ import {
     ScheduledTaskId,
     SubTask,
     SubTaskId,
+    SubtasksPolicy,
     Task,
+    TaskDonePolicy,
+    TaskDonePolicyType,
     TaskId,
-    TaskPriority, TaskReminderPolicy,
+    TaskPriority,
+    TaskReminderPolicy,
     TaskRepeatSchedule,
     TaskUrgency,
     User,
@@ -779,6 +786,11 @@ export class Service {
             throw new ServiceError(`Deadline of ${req.deadline.toISOString()} is before present ${rightNow.toISOString()}`);
         }
 
+        const donePolicy = {
+            type: TaskDonePolicyType.BOOLEAN,
+            boolean: {}
+        };
+
         const newTask: Task = {
             id: -1,
             goalId: -1,
@@ -789,10 +801,7 @@ export class Service {
             deadline: req.deadline,
             repeatSchedule: req.repeatSchedule,
             reminderPolicy: req.reminderPolicy,
-            subTasks: [],
-            subTasksById: new Map<SubTaskId, SubTask>(),
-            subTasksOrder: [],
-            donePolicy: undefined,
+            donePolicy: donePolicy,
             isSuspended: false,
             isArchived: false
         };
@@ -1017,7 +1026,7 @@ export class Service {
         };
     }
 
-    @needsAuth
+    /*@needsAuth
     public async createSubTask(ctx: Context, req: CreateSubTaskRequest): Promise<CreateSubTaskResponse> {
 
         const newSubTask: SubTask = {
@@ -1281,7 +1290,7 @@ export class Service {
         return {
             plan: newFullUser.plan
         };
-    }
+    }*/
 
     // Schedules
 
@@ -1831,9 +1840,9 @@ export class Service {
             for (const task of goal.tasks) {
                 plan.tasksById.set(task.id, task);
 
-                for (const [subTaskId, subTask] of task.subTasksById.entries()) {
+                /*for (const [subTaskId, subTask] of task.subTasksById.entries()) {
                     plan.subTasksById.set(subTaskId, subTask);
-                }
+                }*/
             }
 
             for (const subGoal of goal.subgoals) {
@@ -1922,12 +1931,6 @@ export class Service {
     }
 
     private static dbTaskToTask(taskRow: any): Task {
-        function populateIndicies(task: Task, subTask: SubTask) {
-            task.subTasksById.set(subTask.id, subTask);
-            for (const subSubTask of subTask.subTasks) {
-                populateIndicies(task, subSubTask);
-            }
-        }
 
         const task = {
             id: taskRow.id,
@@ -1939,19 +1942,66 @@ export class Service {
             deadline: taskRow.deadline ? moment.unix(taskRow.deadline).utc() : undefined,
             repeatSchedule: taskRow.repeatSchedule,
             reminderPolicy: taskRow.reminderPolicy,
-            subTasks: taskRow.subTasks.map((st: any) => Service.dbSubTaskToSubTask(st)),
-            subTasksById: new Map<SubTaskId, SubTask>(),
-            subTasksOrder: taskRow.subTasksOrder,
-            donePolicy: taskRow.donePolicy,
+            donePolicy: Service.dbTaskDonePolicyToTaskDonePolicy(taskRow.donePolicy),
             isSuspended: taskRow.isSuspended,
             isArchived: taskRow.isArchived
         };
 
-        for (const subTask of task.subTasks) {
-            populateIndicies(task, subTask);
+        return task;
+    }
+
+    private static dbTaskDonePolicyToTaskDonePolicy(donePolicyRow: any): TaskDonePolicy {
+        const type = donePolicyRow.type;
+
+        switch (type) {
+            case TaskDonePolicyType.BOOLEAN:
+                return {
+                    type: TaskDonePolicyType.BOOLEAN,
+                    boolean: Service.dbBooleanPolicyToBooleanPolicy(donePolicyRow.boolean)
+                };
+            case TaskDonePolicyType.SUBTASKS:
+                return {
+                    type: TaskDonePolicyType.SUBTASKS,
+                    subtasks: Service.dbSubtasksPolicyToSubtasksPolicy(donePolicyRow.subtaks)
+                };
+            case TaskDonePolicyType.COUNTER:
+                return {
+                    type: TaskDonePolicyType.COUNTER,
+                    counter: Service.dbCounterPolicyToCounterPolicy(donePolicyRow.counter)
+                };
+            case TaskDonePolicyType.GAUGE:
+                return {
+                    type: TaskDonePolicyType.GAUGE,
+                    gauge: Service.dbGaugePolicyToGaugePolicy(donePolicyRow.gauge)
+                };
+            default:
+                throw new CriticalServiceError(`Invalid done policy type ${type}`);
+        }
+    }
+
+    private static dbBooleanPolicyToBooleanPolicy(_booleanPolicyRow: any): BooleanPolicy {
+        return {};
+    }
+
+    private static dbSubtasksPolicyToSubtasksPolicy(subtasksPolicyRow: any): SubtasksPolicy {
+        function populateIndicies(policy: SubtasksPolicy, subTask: SubTask) {
+            policy.subTasksById.set(subTask.id, subTask);
+            for (const subSubTask of subTask.subTasks) {
+                populateIndicies(policy, subSubTask);
+            }
         }
 
-        return task;
+        const subtasksPolicy = {
+            subTasks: subtasksPolicyRow.subtasks.map((st: any) => Service.dbSubTaskToSubTask(st)),
+            subTasksOrder: subtasksPolicyRow.subtasksOrder,
+            subTasksById: new Map<SubTaskId, SubTask>()
+        };
+
+        for (const subTask of subtasksPolicy.subTasks) {
+            populateIndicies(subtasksPolicy, subTask);
+        }
+
+        return subtasksPolicy;
     }
 
     private static dbSubTaskToSubTask(subTaskRow: any): SubTask {
@@ -1971,6 +2021,22 @@ export class Service {
         }
 
         return subTask;
+    }
+
+    private static dbCounterPolicyToCounterPolicy(counterPolicyRow: any): CounterPolicy {
+        return {
+            type: counterPolicyRow.type,
+            lowerLimit: counterPolicyRow.lowerLimit,
+            upperLimit: counterPolicyRow.upperLimit
+        };
+    }
+
+    private static dbGaugePolicyToGaugePolicy(gaugePolicyRow: any): GaugePolicy {
+        return {
+            type: gaugePolicyRow.type,
+            lowerLimit: gaugePolicyRow.lowerLimit,
+            upperLimit: gaugePolicyRow.upperLimit
+        };
     }
 
     private static dbBoardToBoard(boardRow: any): Board {
@@ -2035,11 +2101,61 @@ export class Service {
             deadline: task.deadline ? task.deadline.unix() : undefined,
             repeatSchedule: task.repeatSchedule,
             reminderPolicy: task.reminderPolicy,
-            subTasks: task.subTasks.map(st => Service.subTaskToDbSubTask(st)),
-            subTasksOrder: task.subTasksOrder,
-            donePolicy: task.donePolicy,
+            donePolicy: Service.taskDonePolicyToDbTaskDonePolicy(task.donePolicy),
             isSuspended: task.isSuspended,
             isArchived: task.isArchived
+        };
+    }
+
+    private static taskDonePolicyToDbTaskDonePolicy(taskDonePolicy: TaskDonePolicy): any {
+        switch (taskDonePolicy.type) {
+            case TaskDonePolicyType.BOOLEAN:
+                return {
+                    type: TaskDonePolicyType.BOOLEAN,
+                    boolean: Service.booleanPolicyToDbBooleanPolicy(taskDonePolicy.boolean as BooleanPolicy)
+                };
+            case TaskDonePolicyType.SUBTASKS:
+                return {
+                    type: TaskDonePolicyType.SUBTASKS,
+                    subtasks: Service.subtasksPolicyToDbSubtasksPolicy(taskDonePolicy.subtasks as SubtasksPolicy)
+                };
+            case TaskDonePolicyType.COUNTER:
+                return {
+                    type: TaskDonePolicyType.COUNTER,
+                    counter: Service.counterPolicyToDbCounterPolicy(taskDonePolicy.counter as CounterPolicy)
+                };
+            case TaskDonePolicyType.GAUGE:
+                return {
+                    type: TaskDonePolicyType.GAUGE,
+                    counter: Service.gaugePolicyToDbGaugePolicy(taskDonePolicy.gauge as GaugePolicy)
+                };
+        }
+    }
+
+    private static booleanPolicyToDbBooleanPolicy(_booleanPolicy: BooleanPolicy): any {
+        return {};
+    }
+
+    private static subtasksPolicyToDbSubtasksPolicy(subtasksPolicy: SubtasksPolicy): any {
+        return {
+            subTasks: subtasksPolicy.subTasks.map(st => Service.subTaskToDbSubTask(st)),
+            subTasksOrder: subtasksPolicy.subTasksOrder
+        };
+    }
+
+    private static counterPolicyToDbCounterPolicy(counterPolicy: CounterPolicy): any {
+        return {
+            type: counterPolicy.type,
+            lowerLimit: counterPolicy.lowerLimit,
+            upperLimit: counterPolicy.upperLimit
+        };
+    }
+
+    private static gaugePolicyToDbGaugePolicy(gaugePolicy: GaugePolicy): any {
+        return {
+            type: gaugePolicy.type,
+            lowerLimit: gaugePolicy.lowerLimit,
+            upperLimit: gaugePolicy.upperLimit
         };
     }
 
@@ -2330,7 +2446,7 @@ export class Service {
         return task;
     }
 
-    private static getSubTaskById(plan: Plan, id: SubTaskId, allowdArchived: boolean = false): SubTask {
+    /*private static getSubTaskById(plan: Plan, id: SubTaskId, allowdArchived: boolean = false): SubTask {
         const subTask = plan.subTasksById.get(id);
 
         if (subTask === undefined) {
@@ -2340,7 +2456,7 @@ export class Service {
         }
 
         return subTask;
-    }
+    }*/
 
     private static getScheduledTaskEntryById(schedule: Schedule, id: ScheduledTaskId): ScheduledTaskEntry {
         const scheduledTaskEntry = schedule.scheduledTaskEntriesById.get(id);
