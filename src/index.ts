@@ -7,7 +7,7 @@ import {AuthInfo, Context, Service} from "./service/Service";
 import {
     CollectedMetric,
     getGoalRange,
-    getTaskDonePolicyType,
+    getTaskDoneType,
     getTaskPriority,
     getTaskReminderPolicy,
     getTaskRepeatSchedule,
@@ -20,7 +20,7 @@ import {
     Schedule,
     ScheduledTask,
     Task,
-    TaskDonePolicyType,
+    TaskDoneType,
     TaskPriority,
     TaskReminderPolicy,
     TaskUrgency,
@@ -454,7 +454,7 @@ async function main() {
         .option("-d, --deadline <deadlineTime>", "Specifies a deadline in YYYY-MM-DD HH:mm")
         .option("-r, --repeatSchedule <schedule>", "Makes this task repeat according to a schedule", getTaskRepeatSchedule())
         .option("-m, --reminderPolicy <reminderPolicy>", "Controls when you'll be reminded of a task", getTaskReminderPolicy())
-        .option("-d, --donePolicy <donePolicy>", "Controls the way the job is considered done", getTaskDonePolicyType())
+        .option("-d, --donePolicy <donePolicy>", "Controls the way the job is considered done", getTaskDoneType())
         .actionWithAuth(async (vorpal: Vorpal, args: Args, ctx: Context) => {
             const goalId = args.options.goal !== undefined ? Number.parseInt(args.options.goal) : undefined;
             const title = args.title.join(" ");
@@ -464,7 +464,7 @@ async function main() {
             const deadline = args.options.deadline !== undefined ? moment.utc(args.options.deadline) : undefined;
             const repeatSchedule = args.options.repeatSchedule;
             const reminderPolicy = args.options.reminderPolicy !== undefined ? (args.options.reminderPolicy as TaskReminderPolicy) : TaskReminderPolicy.WEEK_BEFORE;
-            const donePolicyType = args.options.donePolicy !== undefined ? (args.options.donePolicy as TaskDonePolicyType) : TaskDonePolicyType.BOOLEAN;
+            const donePolicyType = args.options.donePolicy !== undefined ? (args.options.donePolicy as TaskDoneType) : TaskDoneType.BOOLEAN;
             if (getTaskPriority().indexOf(priority) === -1) {
                 throw new Error(`Invalid task priority ${priority}`);
             }
@@ -474,7 +474,7 @@ async function main() {
             if (getTaskReminderPolicy().indexOf(reminderPolicy) === -1) {
                 throw new Error(`Invalid reminder policy ${reminderPolicy}`);
             }
-            if (getTaskDonePolicyType().indexOf(donePolicyType) === -1) {
+            if (getTaskDoneType().indexOf(donePolicyType) === -1) {
                 throw new Error(`Invalid task done policy ${donePolicyType}`);
             }
 

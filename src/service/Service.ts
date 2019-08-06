@@ -8,10 +8,15 @@ import * as jwt from "jsonwebtoken";
 import {
     Board,
     BooleanPolicy,
+    BooleanStatus,
     CollectedMetric,
     CollectedMetricEntry,
     CounterPolicy,
+    CounterPolicyType,
+    CounterStatus,
     GaugePolicy,
+    GaugePolicyType,
+    GaugeStatus,
     Goal,
     GoalId,
     GoalRange,
@@ -22,15 +27,17 @@ import {
     PlanId,
     Schedule,
     ScheduledTask,
+    ScheduledTaskDoneStatus,
     ScheduledTaskEntry,
     ScheduledTaskEntryId,
     ScheduledTaskId,
     SubTask,
     SubTaskId,
     SubtasksPolicy,
+    SubtasksStatus,
     Task,
     TaskDonePolicy,
-    TaskDonePolicyType,
+    TaskDoneType,
     TaskId,
     TaskPriority,
     TaskReminderPolicy,
@@ -787,7 +794,7 @@ export class Service {
         }
 
         const donePolicy = {
-            type: TaskDonePolicyType.BOOLEAN,
+            type: TaskDoneType.BOOLEAN,
             boolean: {}
         };
 
@@ -814,6 +821,7 @@ export class Service {
                 scheduledTaskId: -1,
                 inProgress: false,
                 isDone: false,
+                doneStatus: Service.generateDoneStatusFromPolicy(newTask),
                 repeatScheduleAt: rightNow.startOf("day")
             }]
         };
@@ -971,6 +979,7 @@ export class Service {
                         scheduledTaskId: scheduledTask.id,
                         inProgress: false,
                         isDone: false,
+                        doneStatus: Service.generateDoneStatusFromPolicy(task),
                         repeatScheduleAt: rightNow.startOf("day")
                     };
 
@@ -1385,8 +1394,16 @@ export class Service {
                 throw new CriticalServiceError(`Scheduled task for task with id ${req.taskId} does not exist`);
             }
 
+            if (task.donePolicy.type !== TaskDoneType.BOOLEAN) {
+                throw new ServiceError(`Cannot mark non-boolean type task with id ${req.taskId} as done`);
+            }
+
             // Find the one scheduled task.
-            scheduledTask.entries[0].isDone = true;
+            const scheduledTaskEntry = scheduledTask.entries[scheduledTask.entries.length - 1];
+
+            (scheduledTaskEntry.doneStatus.boolean as BooleanStatus).isDone = true;
+            scheduledTaskEntry.isDone = Service.computeIsDone(task, scheduledTaskEntry);
+
             schedule.version.minor++;
 
             return [WhatToSave.SCHEDULE, fullUser];
@@ -1512,6 +1529,7 @@ export class Service {
                             scheduledTaskId: scheduledTask.id,
                             inProgress: false,
                             isDone: false,
+                            doneStatus: Service.generateDoneStatusFromPolicy(task),
                             repeatScheduleAt: date
                         });
                         modifiedSomething = true;
@@ -1526,6 +1544,86 @@ export class Service {
                 }
             });
         }
+    }
+
+    private static generateDoneStatusFromPolicy(task: Task): ScheduledTaskDoneStatus {
+        switch (task.donePolicy.type) {
+            case TaskDoneType.BOOLEAN:
+                return {
+                    type: TaskDoneType.BOOLEAN,
+                    boolean: {
+                        isDone: false
+                    }
+                };
+            case TaskDoneType.SUBTASKS:
+                return {
+                    type: TaskDoneType.SUBTASKS,
+                    subtasks: {
+                        doneSubTasks: new Set<SubTaskId>()
+                    }
+                };
+            case TaskDoneType.COUNTER:
+                return {
+                    type: TaskDoneType.COUNTER,
+                    counter: {
+                        currentValue: 0
+                    }
+                };
+            case TaskDoneType.GAUGE:
+                return {
+                    type: TaskDoneType.GAUGE,
+                    gauge: {
+                        currentValue: 0
+                    }
+                };
+        }
+    }
+
+    private static computeIsDone(task: Task, entry: ScheduledTaskEntry): boolean {
+        switch (task.donePolicy.type) {
+            case TaskDoneType.BOOLEAN:
+                return (entry.doneStatus.boolean as BooleanStatus).isDone;
+            case TaskDoneType.SUBTASKS:
+                for (const taskId of (task.donePolicy.subtasks as SubtasksPolicy).subTasksById.keys()) {
+                    if (!(entry.doneStatus.subtasks as SubtasksStatus).doneSubTasks.has(taskId)) {
+                        return false;
+                    }
+                }
+
+                return true;
+            case TaskDoneType.COUNTER: {
+                const donePolicy = task.donePolicy.counter as CounterPolicy;
+                const doneStatus = entry.doneStatus.counter as CounterStatus;
+
+                switch (donePolicy.type) {
+                    case CounterPolicyType.EXACTLY:
+                        return doneStatus.currentValue === donePolicy.lowerLimit;
+                    case CounterPolicyType.AT_LEAST:
+                        return doneStatus.currentValue >= donePolicy.lowerLimit;
+                    case CounterPolicyType.AT_MOST:
+                        return doneStatus.currentValue <= donePolicy.lowerLimit;
+                    case CounterPolicyType.BETWEEN:
+                        return doneStatus.currentValue >= donePolicy.lowerLimit && doneStatus.currentValue <= (donePolicy.upperLimit as number);
+                }
+            } break;
+            case TaskDoneType.GAUGE: {
+                const donePolicy = task.donePolicy.gauge as GaugePolicy;
+                const doneStatus = entry.doneStatus.gauge as GaugeStatus;
+
+                switch (donePolicy.type) {
+                    case GaugePolicyType.EXACTLY:
+                        return doneStatus.currentValue === donePolicy.lowerLimit;
+                    case GaugePolicyType.AT_LEAST:
+                        return doneStatus.currentValue >= donePolicy.lowerLimit;
+                    case GaugePolicyType.AT_MOST:
+                        return doneStatus.currentValue <= donePolicy.lowerLimit;
+                    case GaugePolicyType.BETWEEN:
+                        return doneStatus.currentValue >= donePolicy.lowerLimit && doneStatus.currentValue <= (donePolicy.upperLimit as number);
+                }
+            } break;
+        }
+
+        throw new CriticalServiceError(`Unknown paths with ${task.donePolicy.type}`);
     }
 
     // DB access & helpers
@@ -1954,24 +2052,24 @@ export class Service {
         const type = donePolicyRow.type;
 
         switch (type) {
-            case TaskDonePolicyType.BOOLEAN:
+            case TaskDoneType.BOOLEAN:
                 return {
-                    type: TaskDonePolicyType.BOOLEAN,
+                    type: TaskDoneType.BOOLEAN,
                     boolean: Service.dbBooleanPolicyToBooleanPolicy(donePolicyRow.boolean)
                 };
-            case TaskDonePolicyType.SUBTASKS:
+            case TaskDoneType.SUBTASKS:
                 return {
-                    type: TaskDonePolicyType.SUBTASKS,
+                    type: TaskDoneType.SUBTASKS,
                     subtasks: Service.dbSubtasksPolicyToSubtasksPolicy(donePolicyRow.subtaks)
                 };
-            case TaskDonePolicyType.COUNTER:
+            case TaskDoneType.COUNTER:
                 return {
-                    type: TaskDonePolicyType.COUNTER,
+                    type: TaskDoneType.COUNTER,
                     counter: Service.dbCounterPolicyToCounterPolicy(donePolicyRow.counter)
                 };
-            case TaskDonePolicyType.GAUGE:
+            case TaskDoneType.GAUGE:
                 return {
-                    type: TaskDonePolicyType.GAUGE,
+                    type: TaskDoneType.GAUGE,
                     gauge: Service.dbGaugePolicyToGaugePolicy(donePolicyRow.gauge)
                 };
             default:
@@ -2109,24 +2207,24 @@ export class Service {
 
     private static taskDonePolicyToDbTaskDonePolicy(taskDonePolicy: TaskDonePolicy): any {
         switch (taskDonePolicy.type) {
-            case TaskDonePolicyType.BOOLEAN:
+            case TaskDoneType.BOOLEAN:
                 return {
-                    type: TaskDonePolicyType.BOOLEAN,
+                    type: TaskDoneType.BOOLEAN,
                     boolean: Service.booleanPolicyToDbBooleanPolicy(taskDonePolicy.boolean as BooleanPolicy)
                 };
-            case TaskDonePolicyType.SUBTASKS:
+            case TaskDoneType.SUBTASKS:
                 return {
-                    type: TaskDonePolicyType.SUBTASKS,
+                    type: TaskDoneType.SUBTASKS,
                     subtasks: Service.subtasksPolicyToDbSubtasksPolicy(taskDonePolicy.subtasks as SubtasksPolicy)
                 };
-            case TaskDonePolicyType.COUNTER:
+            case TaskDoneType.COUNTER:
                 return {
-                    type: TaskDonePolicyType.COUNTER,
+                    type: TaskDoneType.COUNTER,
                     counter: Service.counterPolicyToDbCounterPolicy(taskDonePolicy.counter as CounterPolicy)
                 };
-            case TaskDonePolicyType.GAUGE:
+            case TaskDoneType.GAUGE:
                 return {
-                    type: TaskDonePolicyType.GAUGE,
+                    type: TaskDoneType.GAUGE,
                     counter: Service.gaugePolicyToDbGaugePolicy(taskDonePolicy.gauge as GaugePolicy)
                 };
         }
@@ -2209,6 +2307,7 @@ export class Service {
                             scheduledTaskId: ste.scheduledTaskId,
                             inProgress: ste.inProgress,
                             isDone: ste.isDone,
+                            doneStatus: Service.dbScheduledTaskDoneStatusToScheduledTaskDoneStatus(ste.doneStatus),
                             repeatScheduleAt: moment.unix(ste.repeatScheduleAt).utc()
                         };
                     })
@@ -2233,6 +2332,57 @@ export class Service {
         }
 
         return schedule;
+    }
+
+    private static dbScheduledTaskDoneStatusToScheduledTaskDoneStatus(scheduledTaskDoneStatusRow: any): ScheduledTaskDoneStatus {
+        switch (scheduledTaskDoneStatusRow.type) {
+            case TaskDoneType.BOOLEAN:
+                return {
+                    type: TaskDoneType.BOOLEAN,
+                    boolean: Service.dbBooleanStatusToBooleanStatus(scheduledTaskDoneStatusRow.boolean)
+                };
+            case TaskDoneType.SUBTASKS:
+                return {
+                    type: TaskDoneType.SUBTASKS,
+                    subtasks: Service.dbSubtasksStatusToSubtasksStatus(scheduledTaskDoneStatusRow.subtasks)
+                };
+            case TaskDoneType.COUNTER:
+                return {
+                    type: TaskDoneType.COUNTER,
+                    counter: Service.dbCounterStatusToCounterStatus(scheduledTaskDoneStatusRow.counter)
+                };
+            case TaskDoneType.GAUGE:
+                return {
+                    type: TaskDoneType.GAUGE,
+                    counter: Service.dbGaugeStatusToGaugeStatus(scheduledTaskDoneStatusRow.gauge)
+                };
+            default:
+                throw new CriticalServiceError(`Invalid task done type ${scheduledTaskDoneStatusRow.type}`);
+        }
+    }
+
+    private static dbBooleanStatusToBooleanStatus(booleanStatusRow: any): BooleanStatus {
+        return {
+            isDone: booleanStatusRow.isDone
+        };
+    }
+
+    private static dbSubtasksStatusToSubtasksStatus(substasksStatusRow: any): SubtasksStatus {
+        return {
+            doneSubTasks: new Set<SubTaskId>(substasksStatusRow.doneSubtasks)
+        };
+    }
+
+    private static dbCounterStatusToCounterStatus(counterStatusRow: any): CounterStatus {
+        return {
+            currentValue: counterStatusRow.currentValue
+        };
+    }
+
+    private static dbGaugeStatusToGaugeStatus(gaugeStatusRow: any): GaugeStatus {
+        return {
+            currentValue: gaugeStatusRow.currentValue
+        };
     }
 
     private static scheduleToDbSchedule(schedule: Schedule): any {
@@ -2262,12 +2412,62 @@ export class Service {
                             scheduledTaskId: ste.scheduledTaskId,
                             inProgress: ste.inProgress,
                             isDone: ste.isDone,
+                            doneStatus: Service.scheduledTaskDoneStatusToDbScheduledTaskDoneStatus(ste.doneStatus),
                             repeatScheduleAt: ste.repeatScheduleAt.unix()
                         };
                     })
                 };
             }),
             idSerialHack: schedule.idSerialHack
+        };
+    }
+
+    private static scheduledTaskDoneStatusToDbScheduledTaskDoneStatus(scheduledTaskDoneStatus: ScheduledTaskDoneStatus): any {
+        switch (scheduledTaskDoneStatus.type) {
+            case TaskDoneType.BOOLEAN:
+                return {
+                    type: TaskDoneType.BOOLEAN,
+                    boolean: Service.booleanStatusToDbBooleanStatus(scheduledTaskDoneStatus.boolean as BooleanStatus)
+                };
+            case TaskDoneType.SUBTASKS:
+                return {
+                    type: TaskDoneType.SUBTASKS,
+                    subtasks: Service.subtasksStatusToDbSubtasksStatus(scheduledTaskDoneStatus.subtasks as SubtasksStatus)
+                };
+            case TaskDoneType.COUNTER:
+                return {
+                    type: TaskDoneType.COUNTER,
+                    counter: Service.counterStatusToDbCounterStatus(scheduledTaskDoneStatus.counter as CounterStatus)
+                };
+            case TaskDoneType.GAUGE:
+                return {
+                    type: TaskDoneType.GAUGE,
+                    counter: Service.gaugeStatusToDbGaugeStatus(scheduledTaskDoneStatus.gauge as GaugeStatus)
+                };
+        }
+    }
+
+    private static booleanStatusToDbBooleanStatus(booleanStatus: BooleanStatus): any {
+        return {
+            isDone: booleanStatus.isDone
+        };
+    }
+
+    private static subtasksStatusToDbSubtasksStatus(subtasksStatus: SubtasksStatus): any {
+        return {
+            doneSubtasks: new Array<SubTaskId>(...subtasksStatus.doneSubTasks)
+        }
+    }
+
+    private static counterStatusToDbCounterStatus(counterStatus: CounterStatus): any {
+        return {
+            currentValue: counterStatus.currentValue
+        };
+    }
+
+    private static gaugeStatusToDbGaugeStatus(gaugeStatus: GaugeStatus): any {
+        return {
+            gaugeStatus: gaugeStatus.currentValue
         };
     }
 

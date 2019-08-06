@@ -155,23 +155,23 @@ export function getTaskReminderPolicy(): Array<TaskReminderPolicy> {
     return [TaskReminderPolicy.QUARTER_BEFORE, TaskReminderPolicy.MONTH_BEFORE, TaskReminderPolicy.WEEK_BEFORE, TaskReminderPolicy.DAY_BEFORE];
 }
 
-export interface TaskDonePolicy {
-    type: TaskDonePolicyType;
-    boolean?: BooleanPolicy;
-    subtasks?: SubtasksPolicy;
-    counter?: CounterPolicy;
-    gauge?: GaugePolicy;
-}
-
-export enum TaskDonePolicyType {
+export enum TaskDoneType {
     BOOLEAN = "boolean",
     SUBTASKS = "subtasks",
     COUNTER = "counter",
     GAUGE = "gauge"
 }
 
-export function getTaskDonePolicyType(): Array<TaskDonePolicyType> {
-    return [TaskDonePolicyType.BOOLEAN, TaskDonePolicyType.SUBTASKS, TaskDonePolicyType.COUNTER, TaskDonePolicyType.GAUGE];
+export function getTaskDoneType(): Array<TaskDoneType> {
+    return [TaskDoneType.BOOLEAN, TaskDoneType.SUBTASKS, TaskDoneType.COUNTER, TaskDoneType.GAUGE];
+}
+
+export interface TaskDonePolicy {
+    type: TaskDoneType;
+    boolean?: BooleanPolicy;
+    subtasks?: SubtasksPolicy;
+    counter?: CounterPolicy;
+    gauge?: GaugePolicy;
 }
 
 export interface BooleanPolicy {
@@ -185,7 +185,7 @@ export interface SubtasksPolicy {
 
 export interface CounterPolicy {
     type: CounterPolicyType;
-    lowerLimit?: number;
+    lowerLimit: number;
     upperLimit?: number;
 }
 
@@ -198,7 +198,7 @@ export enum CounterPolicyType {
 
 export interface GaugePolicy {
     type: GaugePolicyType;
-    lowerLimit?: number;
+    lowerLimit: number;
     upperLimit?: number;
 }
 
@@ -260,5 +260,30 @@ export interface ScheduledTaskEntry {
     scheduledTaskId: ScheduledTaskId;
     inProgress: boolean;
     isDone: boolean;
+    doneStatus: ScheduledTaskDoneStatus;
     repeatScheduleAt: moment.Moment;
+}
+
+export interface ScheduledTaskDoneStatus {
+    type: TaskDoneType;
+    boolean?: BooleanStatus;
+    subtasks?: SubtasksStatus;
+    counter?: CounterStatus;
+    gauge?: GaugeStatus;
+}
+
+export interface BooleanStatus {
+    isDone: boolean;
+}
+
+export interface SubtasksStatus {
+    doneSubTasks: Set<SubTaskId>;
+}
+
+export interface CounterStatus {
+    currentValue: number;
+}
+
+export interface GaugeStatus {
+    currentValue: number;
 }
