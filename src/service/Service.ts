@@ -793,10 +793,23 @@ export class Service {
             throw new ServiceError(`Deadline of ${req.deadline.toISOString()} is before present ${rightNow.toISOString()}`);
         }
 
-        const donePolicy = {
-            type: TaskDoneType.BOOLEAN,
-            boolean: {}
-        };
+        if (req.donePolicy.type === TaskDoneType.COUNTER) {
+            const counterPolicy = req.donePolicy.counter as CounterPolicy;
+            if (counterPolicy.lowerLimit < 0) {
+                throw new ServiceError(`Lower limit of ${counterPolicy.lowerLimit} cannot be negative`);
+            }
+            if (counterPolicy.type === CounterPolicyType.BETWEEN && (counterPolicy.upperLimit as number) < counterPolicy.lowerLimit) {
+                throw new ServiceError(`Upper limit of ${counterPolicy.upperLimit} is below lower limit of ${counterPolicy.lowerLimit}`);
+            }
+        } else if (req.donePolicy.type === TaskDoneType.GAUGE) {
+            const gaugePolicy = req.donePolicy.gauge as GaugePolicy;
+            if (gaugePolicy.lowerLimit < 0) {
+                throw new ServiceError(`Lower limit of ${gaugePolicy.lowerLimit} cannot be negative`);
+            }
+            if (gaugePolicy.type === GaugePolicyType.BETWEEN && (gaugePolicy.upperLimit as number) < gaugePolicy.lowerLimit) {
+                throw new ServiceError(`Upper limit of ${gaugePolicy.upperLimit} is below lower limit of ${gaugePolicy.lowerLimit}`)
+            }
+        }
 
         const newTask: Task = {
             id: -1,
@@ -808,7 +821,25 @@ export class Service {
             deadline: req.deadline,
             repeatSchedule: req.repeatSchedule,
             reminderPolicy: req.reminderPolicy,
-            donePolicy: donePolicy,
+            donePolicy: {
+                type: req.donePolicy.type,
+                boolean: req.donePolicy.type !== TaskDoneType.BOOLEAN ? undefined : {},
+                subtasks: req.donePolicy.type !== TaskDoneType.SUBTASKS ? undefined : {
+                    subTasks: [],
+                    subTasksOrder: [],
+                    subTasksById: new Map<SubTaskId, SubTask>()
+                },
+                counter: req.donePolicy.type !== TaskDoneType.COUNTER ? undefined : {
+                    type: (req.donePolicy.counter as CounterPolicy).type,
+                    lowerLimit: (req.donePolicy.counter as CounterPolicy).lowerLimit,
+                    upperLimit: (req.donePolicy.counter as CounterPolicy).upperLimit
+                },
+                gauge: req.donePolicy.type !== TaskDoneType.GAUGE ? undefined : {
+                    type: (req.donePolicy.gauge as GaugePolicy).type,
+                    lowerLimit: (req.donePolicy.gauge as GaugePolicy).lowerLimit,
+                    upperLimit: (req.donePolicy.gauge as GaugePolicy).upperLimit
+                }
+            },
             isSuspended: false,
             isArchived: false
         };
@@ -1388,11 +1419,7 @@ export class Service {
             const task = Service.getTaskById(plan, req.taskId);
             Service.getGoalById(plan, task.goalId);
 
-            const scheduledTask = schedule.scheduledTasksByTaskId.get(req.taskId);
-
-            if (scheduledTask === undefined) {
-                throw new CriticalServiceError(`Scheduled task for task with id ${req.taskId} does not exist`);
-            }
+            const scheduledTask = Service.getScheduledTaskByTaskId(schedule, req.taskId);
 
             if (task.donePolicy.type !== TaskDoneType.BOOLEAN) {
                 throw new ServiceError(`Cannot mark non-boolean type task with id ${req.taskId} as done`);
@@ -1402,6 +1429,76 @@ export class Service {
             const scheduledTaskEntry = scheduledTask.entries[scheduledTask.entries.length - 1];
 
             (scheduledTaskEntry.doneStatus.boolean as BooleanStatus).isDone = true;
+            scheduledTaskEntry.isDone = Service.computeIsDone(task, scheduledTaskEntry);
+
+            schedule.version.minor++;
+
+            return [WhatToSave.SCHEDULE, fullUser];
+        });
+
+        return {
+            plan: newFullUser.plan,
+            schedule: newFullUser.schedule
+        };
+    }
+
+    @needsAuth
+    public async incrementCounterTask(ctx: Context, req: IncrementCounterTaskRequest): Promise<IncrementCounterTaskResponse> {
+
+        const newFullUser = await this.dbModifyFullUser(ctx, fullUser => {
+
+            const plan = fullUser.plan;
+            const schedule = fullUser.schedule;
+
+            const task = Service.getTaskById(plan, req.taskId);
+            Service.getGoalById(plan, task.goalId);
+
+            const scheduledTask = Service.getScheduledTaskByTaskId(schedule, req.taskId);
+
+            if (task.donePolicy.type !== TaskDoneType.COUNTER) {
+                throw new ServiceError(`Cannot increment non-counter type task with id ${req.taskId}`);
+            }
+
+            // Find the one scheduled task.
+            const scheduledTaskEntry = scheduledTask.entries[scheduledTask.entries.length - 1];
+            (scheduledTaskEntry.doneStatus.counter as CounterStatus).currentValue++;
+            scheduledTaskEntry.isDone = Service.computeIsDone(task, scheduledTaskEntry);
+
+            schedule.version.minor++;
+
+            return [WhatToSave.SCHEDULE, fullUser];
+        });
+
+        return {
+            plan: newFullUser.plan,
+            schedule: newFullUser.schedule
+        };
+    }
+
+    @needsAuth
+    public async setGaugeTask(ctx: Context, req: SetGaugeTaskRequest): Promise<SetGaugeTaskResponse> {
+
+        if (req.level < 0) {
+            throw new ServiceError(`Cannot set negative level ${req.level} for task ${req.taskId}`);
+        }
+
+        const newFullUser = await this.dbModifyFullUser(ctx, fullUser => {
+
+            const plan = fullUser.plan;
+            const schedule = fullUser.schedule;
+
+            const task = Service.getTaskById(plan, req.taskId);
+            Service.getGoalById(plan, task.goalId);
+
+            const scheduledTask = Service.getScheduledTaskByTaskId(schedule, req.taskId);
+
+            if (task.donePolicy.type !== TaskDoneType.GAUGE) {
+                throw new ServiceError(`Cannot set non-gauge type task with id ${req.taskId}`);
+            }
+
+            // Find the one scheduled task.
+            const scheduledTaskEntry = scheduledTask.entries[scheduledTask.entries.length - 1];
+            (scheduledTaskEntry.doneStatus.gauge as GaugeStatus).currentValue = req.level;
             scheduledTaskEntry.isDone = Service.computeIsDone(task, scheduledTaskEntry);
 
             schedule.version.minor++;
@@ -2060,7 +2157,7 @@ export class Service {
             case TaskDoneType.SUBTASKS:
                 return {
                     type: TaskDoneType.SUBTASKS,
-                    subtasks: Service.dbSubtasksPolicyToSubtasksPolicy(donePolicyRow.subtaks)
+                    subtasks: Service.dbSubtasksPolicyToSubtasksPolicy(donePolicyRow.subtasks)
                 };
             case TaskDoneType.COUNTER:
                 return {
@@ -2090,7 +2187,7 @@ export class Service {
         }
 
         const subtasksPolicy = {
-            subTasks: subtasksPolicyRow.subtasks.map((st: any) => Service.dbSubTaskToSubTask(st)),
+            subTasks: subtasksPolicyRow.subTasks.map((st: any) => Service.dbSubTaskToSubTask(st)),
             subTasksOrder: subtasksPolicyRow.subtasksOrder,
             subTasksById: new Map<SubTaskId, SubTask>()
         };
@@ -2225,7 +2322,7 @@ export class Service {
             case TaskDoneType.GAUGE:
                 return {
                     type: TaskDoneType.GAUGE,
-                    counter: Service.gaugePolicyToDbGaugePolicy(taskDonePolicy.gauge as GaugePolicy)
+                    gauge: Service.gaugePolicyToDbGaugePolicy(taskDonePolicy.gauge as GaugePolicy)
                 };
         }
     }
@@ -2354,7 +2451,7 @@ export class Service {
             case TaskDoneType.GAUGE:
                 return {
                     type: TaskDoneType.GAUGE,
-                    counter: Service.dbGaugeStatusToGaugeStatus(scheduledTaskDoneStatusRow.gauge)
+                    gauge: Service.dbGaugeStatusToGaugeStatus(scheduledTaskDoneStatusRow.gauge)
                 };
             default:
                 throw new CriticalServiceError(`Invalid task done type ${scheduledTaskDoneStatusRow.type}`);
@@ -2442,7 +2539,7 @@ export class Service {
             case TaskDoneType.GAUGE:
                 return {
                     type: TaskDoneType.GAUGE,
-                    counter: Service.gaugeStatusToDbGaugeStatus(scheduledTaskDoneStatus.gauge as GaugeStatus)
+                    gauge: Service.gaugeStatusToDbGaugeStatus(scheduledTaskDoneStatus.gauge as GaugeStatus)
                 };
         }
     }
@@ -2467,7 +2564,7 @@ export class Service {
 
     private static gaugeStatusToDbGaugeStatus(gaugeStatus: GaugeStatus): any {
         return {
-            gaugeStatus: gaugeStatus.currentValue
+            currentValue: gaugeStatus.currentValue
         };
     }
 
@@ -2657,6 +2754,16 @@ export class Service {
 
         return subTask;
     }*/
+
+    private static getScheduledTaskByTaskId(schedule: Schedule, taskId: TaskId): ScheduledTask {
+        const scheduledTask = schedule.scheduledTasksByTaskId.get(taskId);
+
+        if (scheduledTask === undefined) {
+            throw new CriticalServiceError(`Scheduled task for task with id ${taskId} does not exist`);
+        }
+
+        return scheduledTask;
+    }
 
     private static getScheduledTaskEntryById(schedule: Schedule, id: ScheduledTaskId): ScheduledTaskEntry {
         const scheduledTaskEntry = schedule.scheduledTaskEntriesById.get(id);
@@ -2869,6 +2976,19 @@ export interface CreateTaskRequest {
     deadline?: moment.Moment,
     repeatSchedule?: TaskRepeatSchedule;
     reminderPolicy: TaskReminderPolicy;
+    donePolicy: {
+        type: TaskDoneType;
+        counter?: {
+            type: CounterPolicyType;
+            lowerLimit: number;
+            upperLimit?: number;
+        };
+        gauge?: {
+            type: GaugePolicyType;
+            lowerLimit: number;
+            upperLimit?: number;
+        }
+    }
 }
 
 export interface CreateTaskResponse {
@@ -2991,6 +3111,25 @@ export interface MarkTaskAsDoneRequest {
 }
 
 export interface MarkTaskAsDoneResponse {
+    plan: Plan;
+    schedule: Schedule;
+}
+
+export interface IncrementCounterTaskRequest {
+    taskId: TaskId;
+}
+
+export interface IncrementCounterTaskResponse {
+    plan: Plan;
+    schedule: Schedule;
+}
+
+export interface SetGaugeTaskRequest {
+    taskId: TaskId;
+    level: number;
+}
+
+export interface SetGaugeTaskResponse {
     plan: Plan;
     schedule: Schedule;
 }

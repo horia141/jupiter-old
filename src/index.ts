@@ -3,11 +3,12 @@ import {Args} from "vorpal";
 import * as knex from "knex";
 import * as moment from "moment";
 
-import {AuthInfo, Context, Service} from "./service/Service";
+import {AuthInfo, Context, CreateTaskRequest, Service} from "./service/Service";
 import {
     CollectedMetric,
+    CounterPolicy,
+    CounterPolicyType, GaugePolicy, GaugePolicyType,
     getGoalRange,
-    getTaskDoneType,
     getTaskPriority,
     getTaskReminderPolicy,
     getTaskRepeatSchedule,
@@ -454,7 +455,10 @@ async function main() {
         .option("-d, --deadline <deadlineTime>", "Specifies a deadline in YYYY-MM-DD HH:mm")
         .option("-r, --repeatSchedule <schedule>", "Makes this task repeat according to a schedule", getTaskRepeatSchedule())
         .option("-m, --reminderPolicy <reminderPolicy>", "Controls when you'll be reminded of a task", getTaskReminderPolicy())
-        .option("-d, --donePolicy <donePolicy>", "Controls the way the job is considered done", getTaskDoneType())
+        .option("-b, --boolean", "Creates a boolean task")
+        .option("-s, --subtasks", "Creates a task with subtasks")
+        .option("--counter <counterConfig>", "Create a task with a counter done policy")
+        .option("--gauge <gaugeConfig>", "Create a task with a gauge done policy")
         .actionWithAuth(async (vorpal: Vorpal, args: Args, ctx: Context) => {
             const goalId = args.options.goal !== undefined ? Number.parseInt(args.options.goal) : undefined;
             const title = args.title.join(" ");
@@ -464,7 +468,6 @@ async function main() {
             const deadline = args.options.deadline !== undefined ? moment.utc(args.options.deadline) : undefined;
             const repeatSchedule = args.options.repeatSchedule;
             const reminderPolicy = args.options.reminderPolicy !== undefined ? (args.options.reminderPolicy as TaskReminderPolicy) : TaskReminderPolicy.WEEK_BEFORE;
-            const donePolicyType = args.options.donePolicy !== undefined ? (args.options.donePolicy as TaskDoneType) : TaskDoneType.BOOLEAN;
             if (getTaskPriority().indexOf(priority) === -1) {
                 throw new Error(`Invalid task priority ${priority}`);
             }
@@ -474,11 +477,26 @@ async function main() {
             if (getTaskReminderPolicy().indexOf(reminderPolicy) === -1) {
                 throw new Error(`Invalid reminder policy ${reminderPolicy}`);
             }
-            if (getTaskDoneType().indexOf(donePolicyType) === -1) {
-                throw new Error(`Invalid task done policy ${donePolicyType}`);
+
+            let taskDoneType = null;
+            let counterPolicy = undefined;
+            let gaugePolicy = undefined;
+
+            if (args.options.boolean !== undefined) {
+                taskDoneType = TaskDoneType.BOOLEAN;
+            } else if (args.options.subtasks !== undefined) {
+                taskDoneType = TaskDoneType.SUBTASKS;
+            } else if (args.options.counter !== undefined) {
+                taskDoneType = TaskDoneType.COUNTER;
+                counterPolicy = parseCounterPolicy(args.options.counter);
+            } else if (args.options.gauge !== undefined) {
+                taskDoneType = TaskDoneType.GAUGE;
+                gaugePolicy = parseGaugePolicy(args.options.gauge);
+            } else {
+                taskDoneType = TaskDoneType.BOOLEAN;
             }
 
-            const req = {
+            const req: CreateTaskRequest = {
                 goalId: goalId,
                 title: title,
                 description: description,
@@ -487,8 +505,13 @@ async function main() {
                 deadline: deadline,
                 repeatSchedule: repeatSchedule,
                 reminderPolicy: reminderPolicy,
-                donePolicyType: donePolicyType
+                donePolicy: {
+                    type: taskDoneType,
+                    counter: counterPolicy,
+                    gauge: gaugePolicy
+                }
             };
+
             const res = await service.createTask(ctx, req);
             vorpal.log(printPlan(res.plan));
         });
@@ -819,6 +842,32 @@ async function main() {
         });
 
     vorpal
+        .command("schedule:increment-counter-task <taskId>")
+        .description("Increment the value for a counter task")
+        .actionWithAuth(async (vorpal: Vorpal, args: Args, ctx: Context) => {
+            const taskId = Number.parseInt(args.taskId);
+            const req = {
+                taskId: taskId
+            };
+            const res = await service.incrementCounterTask(ctx, req);
+            vorpal.log(printSchedule(res.schedule, res.plan));
+        });
+
+    vorpal
+        .command("schedule:set-gauge-task <taskId> <level>")
+        .description("Increment the value for a counter task")
+        .actionWithAuth(async (vorpal: Vorpal, args: Args, ctx: Context) => {
+            const taskId = Number.parseInt(args.taskId);
+            const level = Number.parseInt(args.level);
+            const req = {
+                taskId: taskId,
+                level: level
+            };
+            const res = await service.setGaugeTask(ctx, req);
+            vorpal.log(printSchedule(res.schedule, res.plan));
+        });
+
+    vorpal
         .delimiter(">> ")
         .show();
 }
@@ -988,6 +1037,108 @@ function printScheduledTask(scheduledTask: ScheduledTask, plan: Plan): string {
     }
 
     return res.join("\n");
+}
+
+function parseCounterPolicy(policyStr: string): CounterPolicy {
+    const policyLs = policyStr.trim().split(" ").filter(s => s.trim() !== "");
+
+    if (policyLs.length < 2) {
+        throw new Error(`Invalid counter policy "${policyStr}"`);
+    }
+
+    const type = policyLs[0];
+    const lowerLimitStr = policyLs[1];
+    const lowerLimit = Number.parseInt(lowerLimitStr);
+    if (Number.isNaN(lowerLimit) || lowerLimit.toString() !== lowerLimitStr) {
+        throw new Error(`Invalid counter policy "${policyStr}"`);
+    }
+
+    switch (type) {
+        case CounterPolicyType.EXACTLY:
+            return {
+                type: CounterPolicyType.EXACTLY,
+                lowerLimit: lowerLimit
+            };
+        case CounterPolicyType.AT_MOST:
+            return {
+                type: CounterPolicyType.AT_MOST,
+                lowerLimit: lowerLimit
+            };
+        case CounterPolicyType.AT_LEAST:
+            return {
+                type: CounterPolicyType.AT_LEAST,
+                lowerLimit: lowerLimit
+            };
+        case CounterPolicyType.BETWEEN:
+            if (policyLs.length !== 3) {
+                throw new Error(`Invalid counter policy "${policyStr}"`);
+            }
+
+            const upperLimitStr = policyLs[2];
+            const upperLimit = Number.parseInt(upperLimitStr);
+            if (Number.isNaN(upperLimit) || upperLimit.toString() !== upperLimitStr) {
+                throw new Error(`Invalid counter policy "${policyStr}"`);
+            }
+
+            return {
+                type: CounterPolicyType.BETWEEN,
+                lowerLimit: lowerLimit,
+                upperLimit: upperLimit
+            };
+        default:
+            throw new Error(`Invalid counter policy "${policyStr}"`);
+    }
+}
+
+function parseGaugePolicy(policyStr: string): GaugePolicy {
+    const policyLs = policyStr.trim().split(" ").filter(s => s.trim() !== "");
+
+    if (policyLs.length < 2) {
+        throw new Error(`Invalid counter policy "${policyStr}"`);
+    }
+
+    const type = policyLs[0];
+    const lowerLimitStr = policyLs[1];
+    const lowerLimit = Number.parseInt(lowerLimitStr);
+    if (Number.isNaN(lowerLimit) || lowerLimit.toString() !== lowerLimitStr) {
+        throw new Error(`Invalid counter policy "${policyStr}"`);
+    }
+
+    switch (type) {
+        case GaugePolicyType.EXACTLY:
+            return {
+                type: GaugePolicyType.EXACTLY,
+                lowerLimit: lowerLimit
+            };
+        case GaugePolicyType.AT_MOST:
+            return {
+                type: GaugePolicyType.AT_MOST,
+                lowerLimit: lowerLimit
+            };
+        case GaugePolicyType.AT_LEAST:
+            return {
+                type: GaugePolicyType.AT_LEAST,
+                lowerLimit: lowerLimit
+            };
+        case GaugePolicyType.BETWEEN:
+            if (policyLs.length !== 3) {
+                throw new Error(`Invalid counter policy "${policyStr}"`);
+            }
+
+            const upperLimitStr = policyLs[2];
+            const upperLimit = Number.parseInt(upperLimitStr);
+            if (Number.isNaN(upperLimit) || upperLimit.toString() !== upperLimitStr) {
+                throw new Error(`Invalid counter policy "${policyStr}"`);
+            }
+
+            return {
+                type: GaugePolicyType.BETWEEN,
+                lowerLimit: lowerLimit,
+                upperLimit: upperLimit
+            };
+        default:
+            throw new Error(`Invalid counter policy "${policyStr}"`);
+    }
 }
 
 main();
