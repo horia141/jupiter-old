@@ -1033,6 +1033,18 @@ export class Service {
                 }
                 task.isSuspended = req.isSuspended;
             }
+            if (req.counterPolicy !== undefined) {
+                if (task.donePolicy.type !== TaskDoneType.COUNTER) {
+                    throw new ServiceError(`Task with id ${task.id} is not counter`);
+                }
+                task.donePolicy.counter = req.counterPolicy;
+            }
+            if (req.gaugePolicy !== undefined) {
+                if (task.donePolicy.type !== TaskDoneType.GAUGE) {
+                    throw new ServiceError(`Task with id ${task.id} is not gauge`);
+                }
+                task.donePolicy.gauge = req.gaugePolicy;
+            }
             fullUser.plan.version.minor++;
 
             return [WhatToSave.PLAN_AND_SCHEDULE, fullUser];
@@ -1066,7 +1078,7 @@ export class Service {
         };
     }
 
-    /*@needsAuth
+    @needsAuth
     public async createSubTask(ctx: Context, req: CreateSubTaskRequest): Promise<CreateSubTaskResponse> {
 
         const newSubTask: SubTask = {
@@ -1085,22 +1097,28 @@ export class Service {
             const task = Service.getTaskById(plan, req.taskId);
             Service.getGoalById(plan, task.goalId);
 
+            if (task.donePolicy.type !== TaskDoneType.SUBTASKS) {
+                throw new ServiceError(`Cannot create sub-task for non subtask goal task ${task.id}`);
+            }
+
             plan.idSerialHack++;
             newSubTask.id = plan.idSerialHack;
 
+            const subtaskPolicy = task.donePolicy.subtasks as SubtasksPolicy;
+
             if (req.parentSubTaskId === undefined) {
-                task.subTasks.push(newSubTask);
-                task.subTasksById.set(newSubTask.id, newSubTask);
-                task.subTasksOrder.push(newSubTask.id);
+                subtaskPolicy.subTasks.push(newSubTask);
+                subtaskPolicy.subTasksOrder.push(newSubTask.id);
+                subtaskPolicy.subTasksById.set(newSubTask.id, newSubTask);
             } else {
-                const parentSubTask = task.subTasksById.get(req.parentSubTaskId);
+                const parentSubTask = subtaskPolicy.subTasksById.get(req.parentSubTaskId);
                 if (parentSubTask === undefined) {
                     throw new ServiceError(`Cannot find parent subTask with id ${req.parentSubTaskId}`);
                 }
                 parentSubTask.subTasks.push(newSubTask);
-                parentSubTask.subTasksById.set(newSubTask.id, newSubTask);
                 parentSubTask.subTasksOrder.push(newSubTask.id);
-                task.subTasksById.set(newSubTask.id, newSubTask);
+                parentSubTask.subTasksById.set(newSubTask.id, newSubTask);
+                subtaskPolicy.subTasksById.set(newSubTask.id, newSubTask);
             }
 
             plan.subTasksById.set(newSubTask.id, newSubTask);
@@ -1131,6 +1149,8 @@ export class Service {
             const parentSubTask = subTask.parentSubTaskId ? Service.getSubTaskById(plan, subTask.parentSubTaskId) : null;
             Service.getGoalById(plan, task.goalId);
 
+            const subtasksPolicy = task.donePolicy.subtasks as SubtasksPolicy;
+
             if (req.moveToTopLevel && req.parentSubTaskId === undefined && parentSubTask !== null) {
 
                 // Move a child subtask to the toplevel.
@@ -1143,16 +1163,16 @@ export class Service {
                 parentSubTask.subTasksById.delete(subTask.id);
                 parentSubTask.subTasksOrder.splice(parentOrdersIndex, 1);
 
-                task.subTasks.push(subTask);
-                task.subTasksById.set(subTask.id, subTask);
+                subtasksPolicy.subTasks.push(subTask);
+                subtasksPolicy.subTasksById.set(subTask.id, subTask);
                 if (req.position === undefined) {
-                    task.subTasksOrder.push(subTask.id);
+                    subtasksPolicy.subTasksOrder.push(subTask.id);
                 } else {
-                    if (req.position < 1 || req.position > task.subTasksOrder.length) {
+                    if (req.position < 1 || req.position > subtasksPolicy.subTasksOrder.length) {
                         throw new ServiceError(`Cannot move subtask with id ${subTask.id} to position ${req.position}`);
                     }
 
-                    task.subTasksOrder.splice(req.position - 1, 0, subTask.id);
+                    subtasksPolicy.subTasksOrder.splice(req.position - 1, 0, subTask.id);
                 }
             } else if (req.moveToTopLevel && req.parentSubTaskId === undefined && parentSubTask === null) {
 
@@ -1160,13 +1180,13 @@ export class Service {
 
                 if (req.position !== undefined) {
 
-                    if (req.position < 1 || req.position > task.subTasksOrder.length) {
+                    if (req.position < 1 || req.position > subtasksPolicy.subTasksOrder.length) {
                         throw new ServiceError(`Cannot move subtask with id ${subTask.id} to position ${req.position}`);
                     }
 
-                    const parentIndex = task.subTasksOrder.indexOf(subTask.id);
-                    task.subTasksOrder.splice(parentIndex, 1);
-                    task.subTasksOrder.splice(req.position - 1, 0, subTask.id);
+                    const parentIndex = subtasksPolicy.subTasksOrder.indexOf(subTask.id);
+                    subtasksPolicy.subTasksOrder.splice(parentIndex, 1);
+                    subtasksPolicy.subTasksOrder.splice(req.position - 1, 0, subTask.id);
                 }
             } else if (!req.moveToTopLevel && req.parentSubTaskId !== undefined && parentSubTask !== null) {
                 // Move a child subtask to be a child of another task.
@@ -1226,10 +1246,10 @@ export class Service {
 
                 subTask.parentSubTaskId = req.parentSubTaskId;
 
-                const parentIndex = task.subTasks.findIndex(st => st.id === subTask.id);
-                const parentOrdersIndex = task.subTasksOrder.indexOf(subTask.id);
-                task.subTasks.splice(parentIndex, 1);
-                task.subTasksOrder.splice(parentOrdersIndex, 1);
+                const parentIndex = subtasksPolicy.subTasks.findIndex(st => st.id === subTask.id);
+                const parentOrdersIndex = subtasksPolicy.subTasksOrder.indexOf(subTask.id);
+                subtasksPolicy.subTasks.splice(parentIndex, 1);
+                subtasksPolicy.subTasksOrder.splice(parentOrdersIndex, 1);
 
                 newParentSubTask.subTasks.push(subTask);
                 newParentSubTask.subTasksById.set(subTask.id, subTask);
@@ -1258,13 +1278,13 @@ export class Service {
 
                 // Move a toplevel subtask to a different position.
 
-                if (req.position < 1 || req.position > task.subTasksOrder.length) {
+                if (req.position < 1 || req.position > subtasksPolicy.subTasksOrder.length) {
                     throw new ServiceError(`Cannot move subtask with id ${subTask.id} to position ${req.position}`);
                 }
 
-                const parentIndex = task.subTasksOrder.indexOf(subTask.id);
-                task.subTasksOrder.splice(parentIndex, 1);
-                task.subTasksOrder.splice(req.position - 1, 0, subTask.id);
+                const parentIndex = subtasksPolicy.subTasksOrder.indexOf(subTask.id);
+                subtasksPolicy.subTasksOrder.splice(parentIndex, 1);
+                subtasksPolicy.subTasksOrder.splice(req.position - 1, 0, subTask.id);
             } else {
                 throw new CriticalServiceError("Invalid service path!");
             }
@@ -1313,8 +1333,8 @@ export class Service {
             Service.getGoalById(plan, task.goalId, true);
 
             if (parentSubTask === null) {
-                const subTaskIndex = task.subTasksOrder.indexOf(subTask.id);
-                task.subTasksOrder.splice(subTaskIndex, 1);
+                const subTaskIndex = (task.donePolicy.subtasks as SubtasksPolicy).subTasksOrder.indexOf(subTask.id);
+                (task.donePolicy.subtasks as SubtasksPolicy).subTasksOrder.splice(subTaskIndex, 1);
             } else {
                 const subTaskIndex = parentSubTask.subTasksOrder.indexOf(subTask.id);
                 parentSubTask.subTasksOrder.splice(subTaskIndex, 1);
@@ -1330,7 +1350,7 @@ export class Service {
         return {
             plan: newFullUser.plan
         };
-    }*/
+    }
 
     // Schedules
 
@@ -1429,6 +1449,41 @@ export class Service {
             const scheduledTaskEntry = scheduledTask.entries[scheduledTask.entries.length - 1];
 
             (scheduledTaskEntry.doneStatus.boolean as BooleanStatus).isDone = true;
+            scheduledTaskEntry.isDone = Service.computeIsDone(task, scheduledTaskEntry);
+
+            schedule.version.minor++;
+
+            return [WhatToSave.SCHEDULE, fullUser];
+        });
+
+        return {
+            plan: newFullUser.plan,
+            schedule: newFullUser.schedule
+        };
+    }
+
+    @needsAuth
+    public async markSubTaskAsDone(ctx: Context, req: MarkSubTaskAsDoneRequest): Promise<MarkSubTaskAsDoneResponse> {
+
+        const newFullUser = await this.dbModifyFullUser(ctx, fullUser => {
+
+            const plan = fullUser.plan;
+            const schedule = fullUser.schedule;
+
+            const subTask = Service.getSubTaskById(plan, req.subTaskId);
+            const task = Service.getTaskById(plan, subTask.taskId);
+            Service.getGoalById(plan, task.goalId);
+
+            const scheduledTask = Service.getScheduledTaskByTaskId(schedule, task.id);
+
+            if (task.donePolicy.type !== TaskDoneType.SUBTASKS) {
+                throw new ServiceError(`Cannot mark non-subtask type task with id ${task.id} as done`);
+            }
+
+            // Find the one scheduled task.
+            const scheduledTaskEntry = scheduledTask.entries[scheduledTask.entries.length - 1];
+
+            (scheduledTaskEntry.doneStatus.subtasks as SubtasksStatus).doneSubTasks.add(req.subTaskId);
             scheduledTaskEntry.isDone = Service.computeIsDone(task, scheduledTaskEntry);
 
             schedule.version.minor++;
@@ -2035,9 +2090,11 @@ export class Service {
             for (const task of goal.tasks) {
                 plan.tasksById.set(task.id, task);
 
-                /*for (const [subTaskId, subTask] of task.subTasksById.entries()) {
-                    plan.subTasksById.set(subTaskId, subTask);
-                }*/
+                if (task.donePolicy.type === TaskDoneType.SUBTASKS) {
+                    for (const [subTaskId, subTask] of (task.donePolicy.subtasks as SubtasksPolicy).subTasksById.entries()) {
+                        plan.subTasksById.set(subTaskId, subTask);
+                    }
+                }
             }
 
             for (const subGoal of goal.subgoals) {
@@ -2188,7 +2245,7 @@ export class Service {
 
         const subtasksPolicy = {
             subTasks: subtasksPolicyRow.subTasks.map((st: any) => Service.dbSubTaskToSubTask(st)),
-            subTasksOrder: subtasksPolicyRow.subtasksOrder,
+            subTasksOrder: subtasksPolicyRow.subTasksOrder,
             subTasksById: new Map<SubTaskId, SubTask>()
         };
 
@@ -2743,7 +2800,7 @@ export class Service {
         return task;
     }
 
-    /*private static getSubTaskById(plan: Plan, id: SubTaskId, allowdArchived: boolean = false): SubTask {
+    private static getSubTaskById(plan: Plan, id: SubTaskId, allowdArchived: boolean = false): SubTask {
         const subTask = plan.subTasksById.get(id);
 
         if (subTask === undefined) {
@@ -2753,7 +2810,7 @@ export class Service {
         }
 
         return subTask;
-    }*/
+    }
 
     private static getScheduledTaskByTaskId(schedule: Schedule, taskId: TaskId): ScheduledTask {
         const scheduledTask = schedule.scheduledTasksByTaskId.get(taskId);
@@ -3017,6 +3074,8 @@ export interface UpdateTaskRequest {
     reminderPolicy?: TaskReminderPolicy;
     clearRepeatSchedule?: boolean;
     isSuspended?: boolean;
+    counterPolicy?: CounterPolicy;
+    gaugePolicy?: GaugePolicy;
 }
 
 export interface UpdateTaskResponse {
@@ -3111,6 +3170,15 @@ export interface MarkTaskAsDoneRequest {
 }
 
 export interface MarkTaskAsDoneResponse {
+    plan: Plan;
+    schedule: Schedule;
+}
+
+export interface MarkSubTaskAsDoneRequest {
+    subTaskId: SubTaskId;
+}
+
+export interface MarkSubTaskAsDoneResponse {
     plan: Plan;
     schedule: Schedule;
 }

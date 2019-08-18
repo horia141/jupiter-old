@@ -3,11 +3,13 @@ import {Args} from "vorpal";
 import * as knex from "knex";
 import * as moment from "moment";
 
-import {AuthInfo, Context, CreateTaskRequest, Service} from "./service/Service";
+import {AuthInfo, Context, CreateTaskRequest, Service, UpdateTaskRequest} from "./service/Service";
 import {
     CollectedMetric,
     CounterPolicy,
-    CounterPolicyType, GaugePolicy, GaugePolicyType,
+    CounterPolicyType,
+    GaugePolicy,
+    GaugePolicyType,
     getGoalRange,
     getTaskPriority,
     getTaskReminderPolicy,
@@ -20,6 +22,7 @@ import {
     Plan,
     Schedule,
     ScheduledTask,
+    SubTask, SubtasksPolicy,
     Task,
     TaskDoneType,
     TaskPriority,
@@ -697,7 +700,7 @@ async function main() {
             vorpal.log(printPlan(res.plan));
         });
 
-    /*vorpal
+    vorpal
         .command("plan:new-subtask <taskId> <title...>")
         .description("Add a new subtask to a task")
         .option("-c, --childOf <parentSubTaskId>", "The subtask of taskId to nest this one under")
@@ -765,7 +768,39 @@ async function main() {
             };
             const res = await service.archiveSubTask(ctx, req);
             vorpal.log(printPlan(res.plan));
-        });*/
+        });
+
+    vorpal
+        .command("plan:set-counter-task-config <taskId> <config>")
+        .description("Change the configuration of a counter task")
+        .actionWithAuth(async (vorpal: Vorpal, args: Args, ctx: Context) => {
+            const taskId = Number.parseInt(args.taskId);
+            const counterPolicy = parseCounterPolicy(args.config);
+
+            const req: UpdateTaskRequest = {
+                taskId: taskId,
+                counterPolicy: counterPolicy
+            };
+
+            const res = await service.updateTask(ctx, req);
+            vorpal.log(printPlan(res.plan));
+        });
+
+    vorpal
+        .command("plan:set-gauge-task-config <taskId> <config>")
+        .description("Change the configuration of a gauge task")
+        .actionWithAuth(async (vorpal: Vorpal, args: Args, ctx: Context) => {
+            const taskId = Number.parseInt(args.taskId);
+            const gaugePolicy = parseGaugePolicy(args.config);
+
+            const req: UpdateTaskRequest = {
+                taskId: taskId,
+                gaugePolicy: gaugePolicy
+            };
+
+            const res = await service.updateTask(ctx, req);
+            vorpal.log(printPlan(res.plan));
+        });
 
     vorpal
         .command("schedule:show")
@@ -838,6 +873,18 @@ async function main() {
                 taskId: taskId
             };
             const res = await service.markTaskAsDone(ctx, req);
+            vorpal.log(printSchedule(res.schedule, res.plan));
+        });
+
+    vorpal
+        .command("schedule:mark-subtask-as-done <subTaskId>")
+        .description("Mark a subtask as done")
+        .actionWithAuth(async (vorpal: Vorpal, args: Args, ctx: Context) => {
+            const subTaskId = Number.parseInt(args.subTaskId);
+            const req = {
+                subTaskId: subTaskId
+            };
+            const res = await service.markSubTaskAsDone(ctx, req);
             vorpal.log(printSchedule(res.schedule, res.plan));
         });
 
@@ -951,19 +998,31 @@ function printTask(task: Task, indent: number): string {
 
     res.push(`${indentStr}    [${task.id}] ${task.isSuspended ? "s " : ""}${task.title} ${task.donePolicy.type} @${task.deadline ? task.deadline.format(STANDARD_DATE_FORMAT) : ""} ${task.priority === TaskPriority.HIGH ? "(high)" : ""} ${task.urgency === TaskUrgency.CRITICAL ? "Must" : "Nice"} ${task.repeatSchedule ? task.repeatSchedule : ""} ${task.reminderPolicy}`);
 
-    /*if (task.subTasksOrder.length > 0) {
-        res.push(`${indentStr}      subtasks:`);
+    switch (task.donePolicy.type) {
+        case TaskDoneType.BOOLEAN:
+            break;
+        case TaskDoneType.SUBTASKS:
+            const substasksPolicy = task.donePolicy.subtasks as SubtasksPolicy;
+            if (substasksPolicy.subTasksOrder.length > 0) {
+                res.push(`${indentStr}      subtasks:`);
 
-        for (const subTaskId of task.subTasksOrder) {
-            const subTask = task.subTasksById.get(subTaskId) as SubTask;
-            res.push(printSubTask(subTask, indent + 8));
-        }
-    }*/
+                for (const subTaskId of substasksPolicy.subTasksOrder) {
+                    const subTask = substasksPolicy.subTasksById.get(subTaskId) as SubTask;
+                    res.push(printSubTask(subTask, indent + 8));
+                }
+            }
+            break;
+        case TaskDoneType.COUNTER:
+            break;
+        case TaskDoneType.GAUGE:
+            break;
+    }
+
 
     return res.join("\n");
 }
 
-/*function printSubTask(subTask: SubTask, indent: number): string {
+function printSubTask(subTask: SubTask, indent: number): string {
     const res = [];
     const indentStr = " ".repeat(indent);
 
@@ -977,7 +1036,7 @@ function printTask(task: Task, indent: number): string {
     }
 
     return res.join("\n");
-}*/
+}
 
 function printSchedule(schedule: Schedule, plan: Plan): string {
     const res = [];

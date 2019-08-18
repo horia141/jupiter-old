@@ -1,4 +1,4 @@
 Commands to add:
 * Record user login.
 * Proper key for signing JWTs
-* Complex notion of doneness: boolean, subtask, counter in a range, gauge in a range
+* Update done status of active scheduled task when doneness criteria changes
