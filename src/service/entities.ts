@@ -232,6 +232,7 @@ export interface Schedule {
     scheduledTasks: ScheduledTask[];
     idSerialHack: number;
     collectedMetricsByMetricId: Map<MetricId, CollectedMetric>;
+    scheduledTasksById: Map<ScheduledTaskId, ScheduledTask>;
     scheduledTasksByTaskId: Map<TaskId, ScheduledTask>;
     scheduledTaskEntriesById: Map<ScheduledTaskEntryId, ScheduledTaskEntry>;
 }

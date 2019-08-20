@@ -880,6 +880,7 @@ export class Service {
             plan.tasksById.set(newTask.id, newTask);
 
             schedule.scheduledTasks.push(newScheduledTask);
+            schedule.scheduledTasksById.set(newScheduledTask.id, newScheduledTask);
             schedule.scheduledTasksByTaskId.set(newTask.id, newScheduledTask);
             schedule.scheduledTaskEntriesById.set(newScheduledTask.entries[0].id, newScheduledTask.entries[0]);
 
@@ -998,11 +999,7 @@ export class Service {
                 // Tricky behaviour here! We look at the last scheduled task entry for this thing. If it's
                 // not today, we add one.
 
-                const scheduledTask = schedule.scheduledTasksByTaskId.get(task.id);
-
-                if (scheduledTask === undefined) {
-                    throw new CriticalServiceError(`Cannot find scheduled task for task with id ${task.id}`);
-                }
+                const scheduledTask = Service.getScheduledTaskByTaskId(schedule, task.id);
 
                 if (!scheduledTask.entries[scheduledTask.entries.length - 1].repeatScheduleAt.isSame(rightNow.startOf("day"))) {
                     const newScheduledTaskEntry: ScheduledTaskEntry = {
@@ -1436,17 +1433,13 @@ export class Service {
             const plan = fullUser.plan;
             const schedule = fullUser.schedule;
 
-            const task = Service.getTaskById(plan, req.taskId);
-            Service.getGoalById(plan, task.goalId);
+            const scheduledTaskEntry = Service.getScheduledTaskEntryById(schedule, req.scheduledTaskEntryId);
+            const scheduledTask = Service.getScheduledTaskById(schedule, scheduledTaskEntry.scheduledTaskId);
+            const task = Service.getTaskById(plan, scheduledTask.taskId);
 
-            const scheduledTask = Service.getScheduledTaskByTaskId(schedule, req.taskId);
-
-            if (task.donePolicy.type !== TaskDoneType.BOOLEAN) {
-                throw new ServiceError(`Cannot mark non-boolean type task with id ${req.taskId} as done`);
+            if (scheduledTaskEntry.doneStatus.type !== TaskDoneType.BOOLEAN) {
+                throw new ServiceError(`Cannot mark non-boolean type task entry with id ${req.scheduledTaskEntryId} as done`);
             }
-
-            // Find the one scheduled task.
-            const scheduledTaskEntry = scheduledTask.entries[scheduledTask.entries.length - 1];
 
             (scheduledTaskEntry.doneStatus.boolean as BooleanStatus).isDone = true;
             scheduledTaskEntry.isDone = Service.computeIsDone(task, scheduledTaskEntry);
@@ -1470,18 +1463,18 @@ export class Service {
             const plan = fullUser.plan;
             const schedule = fullUser.schedule;
 
-            const subTask = Service.getSubTaskById(plan, req.subTaskId);
-            const task = Service.getTaskById(plan, subTask.taskId);
+            const scheduledTaskEntry = Service.getScheduledTaskEntryById(schedule, req.scheduledTaskEntryId);
+            const scheduledTask = Service.getScheduledTaskById(schedule, scheduledTaskEntry.scheduledTaskId);
+            const task = Service.getTaskById(plan, scheduledTask.taskId);
             Service.getGoalById(plan, task.goalId);
 
-            const scheduledTask = Service.getScheduledTaskByTaskId(schedule, task.id);
-
-            if (task.donePolicy.type !== TaskDoneType.SUBTASKS) {
-                throw new ServiceError(`Cannot mark non-subtask type task with id ${task.id} as done`);
+            if (scheduledTaskEntry.doneStatus.type !== TaskDoneType.SUBTASKS) {
+                throw new ServiceError(`Cannot mark non-subtask type task entry with id ${req.scheduledTaskEntryId} as done`);
             }
 
-            // Find the one scheduled task.
-            const scheduledTaskEntry = scheduledTask.entries[scheduledTask.entries.length - 1];
+            if (!(task.donePolicy.subtasks as SubtasksPolicy).subTasksById.has(req.subTaskId)) {
+                throw new ServiceError(`Subtask with id ${req.subTaskId} does not belong to task ${task.id}`);
+            }
 
             (scheduledTaskEntry.doneStatus.subtasks as SubtasksStatus).doneSubTasks.add(req.subTaskId);
             scheduledTaskEntry.isDone = Service.computeIsDone(task, scheduledTaskEntry);
@@ -1514,18 +1507,17 @@ export class Service {
             const plan = fullUser.plan;
             const schedule = fullUser.schedule;
 
-            const task = Service.getTaskById(plan, req.taskId);
+            const scheduledTaskEntry = Service.getScheduledTaskEntryById(schedule, req.scheduledTaskEntryId);
+            const scheduledTask = Service.getScheduledTaskById(schedule, scheduledTaskEntry.scheduledTaskId);
+            const task = Service.getTaskById(plan, scheduledTask.taskId);
             Service.getGoalById(plan, task.goalId);
 
-            const scheduledTask = Service.getScheduledTaskByTaskId(schedule, req.taskId);
-
-            if (task.donePolicy.type !== TaskDoneType.COUNTER) {
-                throw new ServiceError(`Cannot increment non-counter type task with id ${req.taskId}`);
+            if (scheduledTaskEntry.doneStatus.type !== TaskDoneType.COUNTER) {
+                throw new ServiceError(`Cannot increment non-counter type task entry with id ${req.scheduledTaskEntryId}`);
             }
 
             // Find the one scheduled task.
             const increment = req.increment !== undefined ? req.increment : 1;
-            const scheduledTaskEntry = scheduledTask.entries[scheduledTask.entries.length - 1];
             (scheduledTaskEntry.doneStatus.counter as CounterStatus).currentValue += increment;
             scheduledTaskEntry.isDone = Service.computeIsDone(task, scheduledTaskEntry);
 
@@ -1544,7 +1536,7 @@ export class Service {
     public async setGaugeTask(ctx: Context, req: SetGaugeTaskRequest): Promise<SetGaugeTaskResponse> {
 
         if (req.level < 0) {
-            throw new ServiceError(`Cannot set negative level ${req.level} for task ${req.taskId}`);
+            throw new ServiceError(`Cannot set negative level ${req.level} for task entry ${req.scheduledTaskEntryId}`);
         }
 
         const newFullUser = await this.dbModifyFullUser(ctx, fullUser => {
@@ -1552,17 +1544,16 @@ export class Service {
             const plan = fullUser.plan;
             const schedule = fullUser.schedule;
 
-            const task = Service.getTaskById(plan, req.taskId);
+            const scheduledTaskEntry = Service.getScheduledTaskEntryById(schedule, req.scheduledTaskEntryId);
+            const scheduledTask = Service.getScheduledTaskById(schedule, scheduledTaskEntry.scheduledTaskId);
+            const task = Service.getTaskById(plan, scheduledTask.taskId);
             Service.getGoalById(plan, task.goalId);
 
-            const scheduledTask = Service.getScheduledTaskByTaskId(schedule, req.taskId);
-
-            if (task.donePolicy.type !== TaskDoneType.GAUGE) {
-                throw new ServiceError(`Cannot set non-gauge type task with id ${req.taskId}`);
+            if (scheduledTaskEntry.doneStatus.type !== TaskDoneType.GAUGE) {
+                throw new ServiceError(`Cannot set non-gauge type task entry with id ${req.scheduledTaskEntryId}`);
             }
 
             // Find the one scheduled task.
-            const scheduledTaskEntry = scheduledTask.entries[scheduledTask.entries.length - 1];
             (scheduledTaskEntry.doneStatus.gauge as GaugeStatus).currentValue = req.level;
             scheduledTaskEntry.isDone = Service.computeIsDone(task, scheduledTaskEntry);
 
@@ -2479,6 +2470,7 @@ export class Service {
             }),
             idSerialHack: dbSchedule.idSerialHack,
             collectedMetricsByMetricId: new Map<MetricId, CollectedMetric>(),
+            scheduledTasksById: new Map<ScheduledTaskId, ScheduledTask>(),
             scheduledTasksByTaskId: new Map<TaskId, ScheduledTask>(),
             scheduledTaskEntriesById: new Map<ScheduledTaskEntryId, ScheduledTaskEntry>()
         };
@@ -2488,6 +2480,7 @@ export class Service {
         }
 
         for (const scheduledTask of schedule.scheduledTasks) {
+            schedule.scheduledTasksById.set(scheduledTask.id, scheduledTask)
             schedule.scheduledTasksByTaskId.set(scheduledTask.taskId, scheduledTask);
 
             for (const scheduledTaskEntry of scheduledTask.entries) {
@@ -2698,6 +2691,7 @@ export class Service {
                         collectedMetrics: [],
                         idSerialHack: 0,
                         collectedMetricsByMetricId: new Map<MetricId, CollectedMetric>(),
+                        scheduledTasksById: new Map<ScheduledTaskId, ScheduledTask>(),
                         scheduledTasksByTaskId: new Map<TaskId, ScheduledTask>(),
                         scheduledTaskEntriesById: new Map<ScheduledTaskEntryId, ScheduledTaskEntry>()
                     }
@@ -2820,6 +2814,16 @@ export class Service {
         }
 
         return subTask;
+    }
+
+    private static getScheduledTaskById(schedule: Schedule, id: ScheduledTaskId): ScheduledTask {
+        const scheduledTask = schedule.scheduledTasksById.get(id);
+
+        if (scheduledTask === undefined) {
+            throw new CriticalServiceError(`Scheduled task for task with id ${id} does not exist`);
+        }
+
+        return scheduledTask;
     }
 
     private static getScheduledTaskByTaskId(schedule: Schedule, taskId: TaskId): ScheduledTask {
@@ -3176,7 +3180,7 @@ export interface UpdateScheduledTaskEntryResponse {
 }
 
 export interface MarkTaskAsDoneRequest {
-    taskId: TaskId;
+    scheduledTaskEntryId: ScheduledTaskEntryId;
 }
 
 export interface MarkTaskAsDoneResponse {
@@ -3185,6 +3189,7 @@ export interface MarkTaskAsDoneResponse {
 }
 
 export interface MarkSubTaskAsDoneRequest {
+    scheduledTaskEntryId: ScheduledTaskEntryId;
     subTaskId: SubTaskId;
 }
 
@@ -3194,7 +3199,7 @@ export interface MarkSubTaskAsDoneResponse {
 }
 
 export interface IncrementCounterTaskRequest {
-    taskId: TaskId;
+    scheduledTaskEntryId: ScheduledTaskEntryId;
     increment?: number;
 }
 
@@ -3204,7 +3209,7 @@ export interface IncrementCounterTaskResponse {
 }
 
 export interface SetGaugeTaskRequest {
-    taskId: TaskId;
+    scheduledTaskEntryId: ScheduledTaskEntryId;
     level: number;
 }
 

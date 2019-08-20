@@ -865,23 +865,25 @@ async function main() {
 
 
     vorpal
-        .command("schedule:mark-task-as-done <taskId>")
+        .command("schedule:mark-task-as-done <scheduledTaskEntryId>")
         .description("Marks a task as done")
         .actionWithAuth(async (vorpal: Vorpal, args: Args, ctx: Context) => {
-            const taskId = Number.parseInt(args.taskId);
+            const scheduledTaskEntryId = Number.parseInt(args.scheduledTaskEntryId);
             const req = {
-                taskId: taskId
+                scheduledTaskEntryId: scheduledTaskEntryId
             };
             const res = await service.markTaskAsDone(ctx, req);
             vorpal.log(printSchedule(res.schedule, res.plan));
         });
 
     vorpal
-        .command("schedule:mark-subtask-as-done <subTaskId>")
+        .command("schedule:mark-subtask-as-done <scheduledTaskEntryId> <subTaskId>")
         .description("Mark a subtask as done")
         .actionWithAuth(async (vorpal: Vorpal, args: Args, ctx: Context) => {
+            const scheduledTaskEntryId = Number.parseInt(args.scheduledTaskEntryId);
             const subTaskId = Number.parseInt(args.subTaskId);
             const req = {
+                scheduledTaskEntryId: scheduledTaskEntryId,
                 subTaskId: subTaskId
             };
             const res = await service.markSubTaskAsDone(ctx, req);
@@ -889,14 +891,14 @@ async function main() {
         });
 
     vorpal
-        .command("schedule:increment-counter-task <taskId>")
+        .command("schedule:increment-counter-task <scheduledTaskEntryId>")
         .description("Increment the value for a counter task")
         .option("-i, --increment <increment>", "How much to increment the counter. Defaults to 1")
         .actionWithAuth(async (vorpal: Vorpal, args: Args, ctx: Context) => {
-            const taskId = Number.parseInt(args.taskId);
+            const scheduledTaskEntryId = Number.parseInt(args.scheduledTaskEntryId);
             const increment = args.options.increment !== undefined ? Number.parseInt(args.options.increment) : undefined;
             const req = {
-                taskId: taskId,
+                scheduledTaskEntryId: scheduledTaskEntryId,
                 increment: increment
             };
             const res = await service.incrementCounterTask(ctx, req);
@@ -904,13 +906,13 @@ async function main() {
         });
 
     vorpal
-        .command("schedule:set-gauge-task <taskId> <level>")
+        .command("schedule:set-gauge-task <scheduledTaskEntryId> <level>")
         .description("Increment the value for a counter task")
         .actionWithAuth(async (vorpal: Vorpal, args: Args, ctx: Context) => {
-            const taskId = Number.parseInt(args.taskId);
+            const scheduledTaskEntryId = Number.parseInt(args.scheduledTaskEntryId);
             const level = Number.parseInt(args.level);
             const req = {
-                taskId: taskId,
+                scheduledTaskEntryId: scheduledTaskEntryId,
                 level: level
             };
             const res = await service.setGaugeTask(ctx, req);
