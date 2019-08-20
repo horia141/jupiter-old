@@ -891,10 +891,13 @@ async function main() {
     vorpal
         .command("schedule:increment-counter-task <taskId>")
         .description("Increment the value for a counter task")
+        .option("-i, --increment <increment>", "How much to increment the counter. Defaults to 1")
         .actionWithAuth(async (vorpal: Vorpal, args: Args, ctx: Context) => {
             const taskId = Number.parseInt(args.taskId);
+            const increment = args.options.increment !== undefined ? Number.parseInt(args.options.increment) : undefined;
             const req = {
-                taskId: taskId
+                taskId: taskId,
+                increment: increment
             };
             const res = await service.incrementCounterTask(ctx, req);
             vorpal.log(printSchedule(res.schedule, res.plan));

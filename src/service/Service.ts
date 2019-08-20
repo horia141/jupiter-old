@@ -1500,6 +1500,15 @@ export class Service {
     @needsAuth
     public async incrementCounterTask(ctx: Context, req: IncrementCounterTaskRequest): Promise<IncrementCounterTaskResponse> {
 
+        if (req.increment !== undefined) {
+            if (req.increment < 1) {
+                throw new ServiceError("Increment value must be greater than 1");
+            }
+            if (!Number.isInteger(req.increment)) {
+                throw new ServiceError("Increment value must be an integer");
+            }
+        }
+
         const newFullUser = await this.dbModifyFullUser(ctx, fullUser => {
 
             const plan = fullUser.plan;
@@ -1515,8 +1524,9 @@ export class Service {
             }
 
             // Find the one scheduled task.
+            const increment = req.increment !== undefined ? req.increment : 1;
             const scheduledTaskEntry = scheduledTask.entries[scheduledTask.entries.length - 1];
-            (scheduledTaskEntry.doneStatus.counter as CounterStatus).currentValue++;
+            (scheduledTaskEntry.doneStatus.counter as CounterStatus).currentValue += increment;
             scheduledTaskEntry.isDone = Service.computeIsDone(task, scheduledTaskEntry);
 
             schedule.version.minor++;
@@ -3185,6 +3195,7 @@ export interface MarkSubTaskAsDoneResponse {
 
 export interface IncrementCounterTaskRequest {
     taskId: TaskId;
+    increment?: number;
 }
 
 export interface IncrementCounterTaskResponse {
