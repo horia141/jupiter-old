@@ -1,4 +1,3 @@
 Commands to add:
 * Record user login.
 * Proper key for signing JWTs
-* Update done status of active scheduled task when doneness criteria changes

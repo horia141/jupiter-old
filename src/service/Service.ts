@@ -1042,6 +1042,10 @@ export class Service {
                 }
                 task.donePolicy.gauge = req.gaugePolicy;
             }
+
+            const scheduledTaskEntry = Service.getCurrentActiveScheduledTaskEntry(schedule, task);
+            scheduledTaskEntry.isDone = Service.computeIsDone(task, scheduledTaskEntry);
+
             fullUser.plan.version.minor++;
 
             return [WhatToSave.PLAN_AND_SCHEDULE, fullUser];
@@ -1091,6 +1095,8 @@ export class Service {
 
         const newFullUser = await this.dbModifyFullUser(ctx, fullUser => {
             const plan = fullUser.plan;
+            const schedule = fullUser.schedule;
+
             const task = Service.getTaskById(plan, req.taskId);
             Service.getGoalById(plan, task.goalId);
 
@@ -1117,6 +1123,9 @@ export class Service {
                 parentSubTask.subTasksById.set(newSubTask.id, newSubTask);
                 subtaskPolicy.subTasksById.set(newSubTask.id, newSubTask);
             }
+
+            const scheduledTaskEntry = Service.getCurrentActiveScheduledTaskEntry(schedule, task);
+            scheduledTaskEntry.isDone = Service.computeIsDone(task, scheduledTaskEntry);
 
             plan.subTasksById.set(newSubTask.id, newSubTask);
 
@@ -1324,6 +1333,8 @@ export class Service {
 
         const newFullUser = await this.dbModifyFullUser(ctx, fullUser => {
             const plan = fullUser.plan;
+            const schedule = fullUser.schedule;
+
             const subTask = Service.getSubTaskById(plan, req.subTaskId);
             const parentSubTask = subTask.parentSubTaskId ? Service.getSubTaskById(plan, subTask.parentSubTaskId) : null;
             const task = Service.getTaskById(plan, subTask.taskId);
@@ -1336,6 +1347,9 @@ export class Service {
                 const subTaskIndex = parentSubTask.subTasksOrder.indexOf(subTask.id);
                 parentSubTask.subTasksOrder.splice(subTaskIndex, 1);
             }
+
+            const scheduledTaskEntry = Service.getCurrentActiveScheduledTaskEntry(schedule, task);
+            scheduledTaskEntry.isDone = Service.computeIsDone(task, scheduledTaskEntry);
 
             subTask.isArchived = true;
 
@@ -2844,6 +2858,12 @@ export class Service {
         }
 
         return scheduledTaskEntry;
+    }
+
+    private static getCurrentActiveScheduledTaskEntry(schedule: Schedule, task: Task): ScheduledTaskEntry {
+        const scheduledTask = Service.getScheduledTaskByTaskId(schedule, task.id);
+        // Assume it's the last entry and we are up to date!
+        return scheduledTask.entries[scheduledTask.entries.length - 1];
     }
 }
 
