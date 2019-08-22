@@ -2,6 +2,9 @@ import * as Vorpal from "vorpal";
 import {Args} from "vorpal";
 import * as knex from "knex";
 import * as moment from "moment";
+import * as os from "os";
+import * as path from "path";
+import * as fs from "fs-extra";
 
 import {AuthInfo, Context, CreateTaskRequest, Service, UpdateTaskRequest} from "./service/Service";
 import {
@@ -40,6 +43,7 @@ declare module "vorpal" {
 }
 
 const STANDARD_DATE_FORMAT = "YYYY-MM-DD hh:mm UTC";
+const HOME_CONF_PATH = ".jupiter";
 
 async function main() {
 
@@ -74,7 +78,7 @@ async function main() {
         });
     };
 
-    let userAuthInfo: AuthInfo | null = null;
+    let userAuthInfo: AuthInfo | null = await getUserAuthInfoFromLocalStorage();
 
     vorpal
         .command("user:register <email> <password>")
@@ -89,6 +93,7 @@ async function main() {
             };
             const res = await service.getOrCreateUser(req);
             userAuthInfo = res.auth;
+            await saveUserAuthInfoToLocalStorage(userAuthInfo);
             vorpal.log(printUser(res.user));
         });
 
@@ -105,6 +110,7 @@ async function main() {
             };
             const res = await service.getOrCreateUser(req);
             userAuthInfo = res.auth;
+            await saveUserAuthInfoToLocalStorage(userAuthInfo);
             vorpal.log(printUser(res.user));
         });
 
@@ -112,6 +118,7 @@ async function main() {
         .command("user:logout")
         .action(async function (this: Vorpal) {
             userAuthInfo = null;
+            await clearUserAuthInfoFromLocalStorage();
         });
 
     vorpal
@@ -922,6 +929,31 @@ async function main() {
     vorpal
         .delimiter(">> ")
         .show();
+}
+
+async function getUserAuthInfoFromLocalStorage(): Promise<AuthInfo | null> {
+    const authInfoPath = buildAuthInfoLocalStoragePath();
+    try {
+        return await fs.readJson(authInfoPath, { encoding: "utf-8" }) as AuthInfo;
+    } catch (e) {
+        return null;
+    }
+}
+
+async function saveUserAuthInfoToLocalStorage(authInfo: AuthInfo): Promise<void> {
+    const authInfoPath = buildAuthInfoLocalStoragePath();
+    await fs.ensureFile(authInfoPath);
+    await fs.chmod(authInfoPath, "0600")
+    await fs.writeJson(authInfoPath, authInfo, { encoding: "utf-8" });
+}
+
+async function clearUserAuthInfoFromLocalStorage() {
+    const authInfoPath = buildAuthInfoLocalStoragePath();
+    await fs.remove(authInfoPath);
+}
+
+function buildAuthInfoLocalStoragePath(): string {
+    return path.join(os.homedir(), HOME_CONF_PATH, "user-auth");
 }
 
 function printUser(user: User): string {
