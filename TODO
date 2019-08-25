@@ -1,2 +1,4 @@
 Commands to add:
 * Proper key for signing JWTs
+* Compression for node
+* Security for node

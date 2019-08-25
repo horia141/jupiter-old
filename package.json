@@ -7,6 +7,8 @@
         "infra:reset": "./scripts/infra-reset.sh",
         "infra:psql": "./scripts/infra-psql.sh",
         "migrate": "./scripts/migrate.sh",
+        "run:server": "./scripts/run-server.sh",
+        "run:client": "./scripts/run-client.sh",
         "serve": "./scripts/serve.sh",
         "serve:watch": "./scripts/serve-watch.sh"
     },
@@ -15,9 +17,11 @@
         "yarn": ">=1.9"
     },
     "dependencies": {
+        "axios": "=0.19.0",
         "bcrypt": "=3.0.6",
         "email-validator": "=2.0.4",
-        "fs-extra": "^8.1.0",
+        "express": "=4.17.1",
+        "fs-extra": "=8.1.0",
         "jsonwebtoken": "=8.5.1",
         "knex": "=0.16.5",
         "moment": "=2.24.0",
@@ -28,7 +32,8 @@
     },
     "devDependencies": {
         "@types/bcrypt": "=3.0.0",
-        "@types/fs-extra": "^8.0.0",
+        "@types/express": "=4.17.1",
+        "@types/fs-extra": "=8.0.0",
         "@types/jsonwebtoken": "=8.3.2",
         "@types/node": "=11.13.9",
         "@types/vorpal": "=1.11.0",
