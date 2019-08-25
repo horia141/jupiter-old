@@ -1,27 +1,32 @@
 import * as express from "express";
 
-import {rpcHandler, ServiceServer} from "../dsrpc";
+import {ServiceServer} from "../shared/dsrpc";
+import {Handler} from "./Handler";
+import * as knex from "knex";
 
-const app = express();
+function main() {
 
-class Handler {
+    const conn = knex({
+        client: "pg",
+        connection: {
+            host: process.env.POSTGRES_HOST as string,
+            port: process.env.POSTGRES_PORT as string,
+            database: process.env.POSTGRES_DATABASE as string,
+            user: process.env.POSTGRES_USERNAME as string,
+            password: process.env.POSTGRES_PASSWORD as string
+        }
+    });
 
-    @rpcHandler
-    public async getOrCreateUser(_ctx: object, req: {x: number, y: number}): Promise<{foo: string, req: any}> {
-        // return Promise.reject(new Error("fo"));
-        return Promise.resolve({foo: "bar", req: req});
-    }
+    const app = express();
 
-    public toString(): string {
-        return "FOO";
-    }
+    const handler = new Handler(conn);
+    const server = new ServiceServer(handler);
+
+    app.use("/api", server.buildRouter());
+
+    app.listen(3000, () => {
+        console.log("Started ...");
+    });
 }
 
-const handler = new Handler();
-const server = new ServiceServer(handler);
-
-app.use("/api", server.buildRouter());
-
-app.listen(3000, () => {
-    console.log("Started ...");
-});
+main();

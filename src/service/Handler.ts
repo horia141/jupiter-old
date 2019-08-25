@@ -47,7 +47,8 @@ import {
     UserId,
     Vacation,
     VacationId
-} from "./entities";
+} from "../shared/entities";
+import {RpcContext, rpcHandler} from "../shared/dsrpc";
 
 export class ServiceError extends Error {
 
@@ -64,7 +65,7 @@ export class CriticalServiceError extends ServiceError {
 
 }
 
-export class Service {
+export class Handler {
 
     private static readonly REPEATING_TASKS_INTERVAL = moment.duration(1, "minute");
 
@@ -101,12 +102,13 @@ export class Service {
     }
 
     public async init(): Promise<void> {
-        setInterval(this.updateScheduleWithRepeatingTasks.bind(this), Service.REPEATING_TASKS_INTERVAL.asMilliseconds());
+        setInterval(this.updateScheduleWithRepeatingTasks.bind(this), Handler.REPEATING_TASKS_INTERVAL.asMilliseconds());
     }
 
     // User
 
-    public async getOrCreateUser(req: GetOrCreateUserRequest): Promise<GetOrCreateUserResponse> {
+    @rpcHandler
+    public async getOrCreateUser(_ctx: RpcContext, req: GetOrCreateUserRequest): Promise<GetOrCreateUserResponse> {
 
         const rightNow = moment.utc();
 
@@ -121,12 +123,12 @@ export class Service {
         const jwtPayload = {
             id: user.id,
             iat: rightNow.unix(),
-            exp: rightNow.add(Service.AUTH_TOKEN_LIFE_HOURS, "hours").unix()
+            exp: rightNow.add(Handler.AUTH_TOKEN_LIFE_HOURS, "hours").unix()
         };
 
         return new Promise<GetOrCreateUserResponse>((resolve, reject) => {
 
-            jwt.sign(jwtPayload, Service.AUTH_TOKEN_ENCRYPTION_KEY, (err, jwtEncoded) => {
+            jwt.sign(jwtPayload, Handler.AUTH_TOKEN_ENCRYPTION_KEY, (err, jwtEncoded) => {
                 if (err) {
                     return reject(new ServiceError(`Crypto error ${err.message}`));
                 }
@@ -216,7 +218,7 @@ export class Service {
         const newFullUser = await this.dbModifyFullUser(ctx, fullUser => {
 
             const user = fullUser.user;
-            const vacation = Service.getVacationById(user, req.vacationId);
+            const vacation = Handler.getVacationById(user, req.vacationId);
 
             if (req.startTime !== undefined && req.endTime !== undefined) {
                 vacation.startTime = req.startTime;
@@ -247,7 +249,7 @@ export class Service {
         const newFullUser = await this.dbModifyFullUser(ctx, fullUser => {
 
             const user = fullUser.user;
-            const vacation = Service.getVacationById(user, req.vacationId);
+            const vacation = Handler.getVacationById(user, req.vacationId);
 
             vacation.isArchived = true;
 
@@ -308,7 +310,7 @@ export class Service {
             title: req.title,
             description: req.description,
             range: req.range,
-            deadline: Service.deadlineFromRange(rightNow, req.range),
+            deadline: Handler.deadlineFromRange(rightNow, req.range),
             subgoals: [],
             subgoalsById: new Map<GoalId, Goal>(),
             subgoalsOrder: [],
@@ -334,9 +336,9 @@ export class Service {
                 plan.goals.push(newGoal);
                 plan.goalsOrder.push(newGoal.id);
             } else {
-                const parentGoal = Service.getGoalById(plan, req.parentGoalId);
-                newGoal.range = Service.limitRangeToParentRange(newGoal.range, parentGoal.range);
-                newGoal.deadline = Service.deadlineFromRange(rightNow, newGoal.range);
+                const parentGoal = Handler.getGoalById(plan, req.parentGoalId);
+                newGoal.range = Handler.limitRangeToParentRange(newGoal.range, parentGoal.range);
+                newGoal.deadline = Handler.deadlineFromRange(rightNow, newGoal.range);
                 parentGoal.subgoals.push(newGoal);
                 parentGoal.subgoalsById.set(newGoal.id, newGoal);
                 parentGoal.subgoalsOrder.push(newGoal.id);
@@ -366,7 +368,7 @@ export class Service {
 
         const newFullUser = await this.dbModifyFullUser(ctx, fullUser => {
             const plan = fullUser.plan;
-            const goal = Service.getGoalById(plan, req.goalId, true);
+            const goal = Handler.getGoalById(plan, req.goalId, true);
 
             if (goal.isSystemGoal) {
                 throw new ServiceError(`Cannot move system goal with id ${goal.id}`);
@@ -389,7 +391,7 @@ export class Service {
             if (req.moveToToplevel && req.parentGoalId === undefined && goal.parentGoalId !== undefined) {
                 // Move a child goal to the toplevel.
 
-                const parentGoal = Service.getGoalById(plan, goal.parentGoalId, true);
+                const parentGoal = Handler.getGoalById(plan, goal.parentGoalId, true);
                 goal.parentGoalId = undefined;
                 const subgoalsIndex = parentGoal.subgoals.findIndex(g => g.id === goal.id);
                 const subgoalsOrderIndex = parentGoal.subgoalsOrder.indexOf(goal.id);
@@ -424,8 +426,8 @@ export class Service {
             } else if (!req.moveToToplevel && req.parentGoalId !== undefined && goal.parentGoalId !== undefined) {
                 // Move a child goal as a child of another goal
 
-                const oldParentGoal = Service.getGoalById(plan, goal.parentGoalId, true);
-                const parentGoal = Service.getGoalById(plan, req.parentGoalId);
+                const oldParentGoal = Handler.getGoalById(plan, goal.parentGoalId, true);
+                const parentGoal = Handler.getGoalById(plan, req.parentGoalId);
 
                 // Check that the new parent goal isn't a descendant of the current goal.
                 // This is bad behaviour which we can't allow.
@@ -434,7 +436,7 @@ export class Service {
                     if (parentsWalkerGoal.parentGoalId === goal.id) {
                         throw new ServiceError(`Cannot move goal with id ${goal.id} to one of its descendants`);
                     }
-                    parentsWalkerGoal = Service.getGoalById(plan, parentsWalkerGoal.parentGoalId);
+                    parentsWalkerGoal = Handler.getGoalById(plan, parentsWalkerGoal.parentGoalId);
                 }
 
                 goal.parentGoalId = req.parentGoalId;
@@ -444,8 +446,8 @@ export class Service {
                 oldParentGoal.subgoalsById.delete(goal.id);
                 oldParentGoal.subgoalsOrder.splice(subgoalsOrderIndex, 1);
                 goal.parentGoalId = req.parentGoalId;
-                goal.range = Service.limitRangeToParentRange(goal.range, parentGoal.range);
-                goal.deadline = Service.deadlineFromRange(rightNow, goal.range);
+                goal.range = Handler.limitRangeToParentRange(goal.range, parentGoal.range);
+                goal.deadline = Handler.deadlineFromRange(rightNow, goal.range);
 
                 parentGoal.subgoals.push(goal);
                 parentGoal.subgoalsById.set(goal.id, goal);
@@ -461,7 +463,7 @@ export class Service {
             } else if (!req.moveToToplevel && req.parentGoalId !== undefined && goal.parentGoalId === undefined) {
                 // Move a toplevel goal as a child of another goal
 
-                const parentGoal = Service.getGoalById(plan, req.parentGoalId);
+                const parentGoal = Handler.getGoalById(plan, req.parentGoalId);
 
                 // Check that the new parent goal isn't a descendant of the current goal.
                 // This is bad behaviour which we can't allow.
@@ -470,12 +472,12 @@ export class Service {
                     if (parentsWalkerGoal.parentGoalId === goal.id) {
                         throw new ServiceError(`Cannot move goal with id ${goal.id} to one of its descendants`);
                     }
-                    parentsWalkerGoal = Service.getGoalById(plan, parentsWalkerGoal.parentGoalId);
+                    parentsWalkerGoal = Handler.getGoalById(plan, parentsWalkerGoal.parentGoalId);
                 }
 
                 goal.parentGoalId = req.parentGoalId;
-                goal.range = Service.limitRangeToParentRange(goal.range, parentGoal.range);
-                goal.deadline = Service.deadlineFromRange(rightNow, goal.range);
+                goal.range = Handler.limitRangeToParentRange(goal.range, parentGoal.range);
+                goal.deadline = Handler.deadlineFromRange(rightNow, goal.range);
                 const goalsIndex = plan.goals.findIndex( g => g.id === goal.id);
                 const goalsOrderIndex = plan.goalsOrder.indexOf(goal.id);
                 plan.goals.splice(goalsIndex, 1);
@@ -495,7 +497,7 @@ export class Service {
             } else if (!req.moveToToplevel && req.parentGoalId === undefined && goal.parentGoalId !== undefined && req.position !== undefined) {
                 // Move a child goal to a certain position in its parent.
 
-                const parentGoal = Service.getGoalById(plan, goal.parentGoalId);
+                const parentGoal = Handler.getGoalById(plan, goal.parentGoalId);
 
                 if (req.position < 1 || req.position > parentGoal.subgoalsOrder.length) {
                     throw new ServiceError(`Cannot move goal with id ${goal.id} to position ${req.position}`);
@@ -534,7 +536,7 @@ export class Service {
         const rightNow = moment.utc();
 
         const newFullUser = await this.dbModifyFullUser(ctx, fullUser => {
-            const goal = Service.getGoalById(fullUser.plan, req.goalId, true);
+            const goal = Handler.getGoalById(fullUser.plan, req.goalId, true);
 
             if (goal.isSystemGoal) {
                 throw new ServiceError(`Cannot update system goal with id ${goal.id}`);
@@ -548,7 +550,7 @@ export class Service {
             }
             if (req.range !== undefined) {
                 goal.range = req.range;
-                goal.deadline = Service.deadlineFromRange(rightNow, req.range);
+                goal.deadline = Handler.deadlineFromRange(rightNow, req.range);
             }
             if (req.isSuspended !== undefined) {
                 if (req.isSuspended && goal.isSuspended) {
@@ -573,8 +575,8 @@ export class Service {
 
         const newFullUser = await this.dbModifyFullUser(ctx, fullUser => {
             const plan = fullUser.plan;
-            const goal = Service.getGoalById(plan, req.goalId);
-            const parentGoal = goal.parentGoalId ? Service.getGoalById(plan, goal.parentGoalId) : null;
+            const goal = Handler.getGoalById(plan, req.goalId);
+            const parentGoal = goal.parentGoalId ? Handler.getGoalById(plan, goal.parentGoalId) : null;
 
             if (goal.isSystemGoal) {
                 throw new ServiceError(`Cannot mark system goal as done with id ${goal.id}`);
@@ -604,8 +606,8 @@ export class Service {
 
         const newFullUser = await this.dbModifyFullUser(ctx, fullUser => {
             const plan = fullUser.plan;
-            const goal = Service.getGoalById(plan, req.goalId, false, true);
-            const parentGoal = goal.parentGoalId ? Service.getGoalById(plan, goal.parentGoalId) : null;
+            const goal = Handler.getGoalById(plan, req.goalId, false, true);
+            const parentGoal = goal.parentGoalId ? Handler.getGoalById(plan, goal.parentGoalId) : null;
 
             if (goal.isSystemGoal) {
                 throw new ServiceError(`Cannot archive system goal with id ${goal.id}`);
@@ -652,7 +654,7 @@ export class Service {
         const newFullUser = await this.dbModifyFullUser(ctx, fullUser => {
             const plan = fullUser.plan;
             const schedule = fullUser.schedule;
-            const goal = req.goalId ? Service.getGoalById(plan, req.goalId) : Service.getGoalById(plan, plan.inboxGoalId);
+            const goal = req.goalId ? Handler.getGoalById(plan, req.goalId) : Handler.getGoalById(plan, plan.inboxGoalId);
 
             plan.idSerialHack++;
             newMetric.id = plan.idSerialHack;
@@ -691,11 +693,11 @@ export class Service {
 
         const newFullUser = await this.dbModifyFullUser(ctx, fullUser => {
             const plan = fullUser.plan;
-            const metric = Service.getMetricById(plan, req.metricId);
+            const metric = Handler.getMetricById(plan, req.metricId);
 
             if (req.goalId !== undefined) {
-                const oldGoal = Service.getGoalById(plan, metric.goalId);
-                const newGoal = Service.getGoalById(plan, req.goalId);
+                const oldGoal = Handler.getGoalById(plan, metric.goalId);
+                const newGoal = Handler.getGoalById(plan, req.goalId);
 
                 metric.goalId = req.goalId;
                 const oldGoalIndex = oldGoal.metrics.findIndex(m => m.id === metric.id);
@@ -716,7 +718,7 @@ export class Service {
                     newGoal.metricsOrder.push(metric.id);
                 }
             } else if (req.position !== undefined) {
-                const goal = Service.getGoalById(plan, metric.goalId);
+                const goal = Handler.getGoalById(plan, metric.goalId);
 
                 if (req.position < 1 || req.position > goal.metricsOrder.length) {
                     throw new ServiceError(`Cannot move metric with id ${metric.id} to position ${req.position}`);
@@ -744,9 +746,9 @@ export class Service {
 
         const newFullUser = await this.dbModifyFullUser(ctx, fullUser => {
             const plan = fullUser.plan;
-            const metric = Service.getMetricById(plan, req.metricId);
+            const metric = Handler.getMetricById(plan, req.metricId);
 
-            Service.getGoalById(plan, metric.goalId, true);
+            Handler.getGoalById(plan, metric.goalId, true);
 
             if (req.title !== undefined) {
                 metric.title = req.title;
@@ -769,9 +771,9 @@ export class Service {
 
         const newFullUser = await this.dbModifyFullUser(ctx, fullUser => {
             const plan = fullUser.plan;
-            const metric = Service.getMetricById(plan, req.metricId);
+            const metric = Handler.getMetricById(plan, req.metricId);
 
-            Service.getGoalById(plan, metric.goalId, true);
+            Handler.getGoalById(plan, metric.goalId, true);
 
             metric.isArchived = true;
             fullUser.plan.version.minor++;
@@ -852,7 +854,7 @@ export class Service {
                 scheduledTaskId: -1,
                 inProgress: false,
                 isDone: false,
-                doneStatus: Service.generateDoneStatusFromPolicy(newTask),
+                doneStatus: Handler.generateDoneStatusFromPolicy(newTask),
                 repeatScheduleAt: rightNow.startOf("day")
             }]
         };
@@ -860,7 +862,7 @@ export class Service {
         const newFullUser = await this.dbModifyFullUser(ctx, fullUser => {
             const plan = fullUser.plan;
             const schedule = fullUser.schedule;
-            const goal = req.goalId ? Service.getGoalById(plan, req.goalId) : Service.getGoalById(plan, plan.inboxGoalId);
+            const goal = req.goalId ? Handler.getGoalById(plan, req.goalId) : Handler.getGoalById(plan, plan.inboxGoalId);
 
             plan.idSerialHack++;
             newTask.id = plan.idSerialHack;
@@ -904,11 +906,11 @@ export class Service {
 
         const newFullUser = await this.dbModifyFullUser(ctx, fullUser => {
             const plan = fullUser.plan;
-            const task = Service.getTaskById(plan, req.taskId);
+            const task = Handler.getTaskById(plan, req.taskId);
 
             if (req.goalId !== undefined) {
-                const oldGoal = Service.getGoalById(plan, task.goalId);
-                const newGoal = Service.getGoalById(plan, req.goalId);
+                const oldGoal = Handler.getGoalById(plan, task.goalId);
+                const newGoal = Handler.getGoalById(plan, req.goalId);
 
                 task.goalId = req.goalId;
                 const oldGoalIndex = oldGoal.tasks.findIndex(t => t.id === task.id);
@@ -929,7 +931,7 @@ export class Service {
                     newGoal.tasksOrder.push(task.id);
                 }
             } else if (req.position !== undefined) {
-                const goal = Service.getGoalById(plan, task.goalId);
+                const goal = Handler.getGoalById(plan, task.goalId);
 
                 if (req.position < 1 || req.position > goal.tasksOrder.length) {
                     throw new ServiceError(`Cannot move task with id ${task.id} to position ${req.position}`);
@@ -972,9 +974,9 @@ export class Service {
         const newFullUser = await this.dbModifyFullUser(ctx, fullUser => {
             const plan = fullUser.plan;
             const schedule = fullUser.schedule;
-            const task = Service.getTaskById(plan, req.taskId);
+            const task = Handler.getTaskById(plan, req.taskId);
 
-            Service.getGoalById(plan, task.goalId, true);
+            Handler.getGoalById(plan, task.goalId, true);
 
             if (req.title !== undefined) {
                 task.title = req.title;
@@ -999,7 +1001,7 @@ export class Service {
                 // Tricky behaviour here! We look at the last scheduled task entry for this thing. If it's
                 // not today, we add one.
 
-                const scheduledTask = Service.getScheduledTaskByTaskId(schedule, task.id);
+                const scheduledTask = Handler.getScheduledTaskByTaskId(schedule, task.id);
 
                 if (!scheduledTask.entries[scheduledTask.entries.length - 1].repeatScheduleAt.isSame(rightNow.startOf("day"))) {
                     const newScheduledTaskEntry: ScheduledTaskEntry = {
@@ -1007,7 +1009,7 @@ export class Service {
                         scheduledTaskId: scheduledTask.id,
                         inProgress: false,
                         isDone: false,
-                        doneStatus: Service.generateDoneStatusFromPolicy(task),
+                        doneStatus: Handler.generateDoneStatusFromPolicy(task),
                         repeatScheduleAt: rightNow.startOf("day")
                     };
 
@@ -1043,8 +1045,8 @@ export class Service {
                 task.donePolicy.gauge = req.gaugePolicy;
             }
 
-            const scheduledTaskEntry = Service.getCurrentActiveScheduledTaskEntry(schedule, task);
-            scheduledTaskEntry.isDone = Service.computeIsDone(task, scheduledTaskEntry);
+            const scheduledTaskEntry = Handler.getCurrentActiveScheduledTaskEntry(schedule, task);
+            scheduledTaskEntry.isDone = Handler.computeIsDone(task, scheduledTaskEntry);
 
             fullUser.plan.version.minor++;
 
@@ -1061,8 +1063,8 @@ export class Service {
 
         const newFullUser = await this.dbModifyFullUser(ctx, fullUser => {
             const plan = fullUser.plan;
-            const task = Service.getTaskById(plan, req.taskId);
-            const goal = Service.getGoalById(plan, task.goalId, true);
+            const task = Handler.getTaskById(plan, req.taskId);
+            const goal = Handler.getGoalById(plan, task.goalId, true);
 
             task.isArchived = true;
 
@@ -1097,8 +1099,8 @@ export class Service {
             const plan = fullUser.plan;
             const schedule = fullUser.schedule;
 
-            const task = Service.getTaskById(plan, req.taskId);
-            Service.getGoalById(plan, task.goalId);
+            const task = Handler.getTaskById(plan, req.taskId);
+            Handler.getGoalById(plan, task.goalId);
 
             if (task.donePolicy.type !== TaskDoneType.SUBTASKS) {
                 throw new ServiceError(`Cannot create sub-task for non subtask goal task ${task.id}`);
@@ -1124,8 +1126,8 @@ export class Service {
                 subtaskPolicy.subTasksById.set(newSubTask.id, newSubTask);
             }
 
-            const scheduledTaskEntry = Service.getCurrentActiveScheduledTaskEntry(schedule, task);
-            scheduledTaskEntry.isDone = Service.computeIsDone(task, scheduledTaskEntry);
+            const scheduledTaskEntry = Handler.getCurrentActiveScheduledTaskEntry(schedule, task);
+            scheduledTaskEntry.isDone = Handler.computeIsDone(task, scheduledTaskEntry);
 
             plan.subTasksById.set(newSubTask.id, newSubTask);
 
@@ -1150,10 +1152,10 @@ export class Service {
 
         const newFullUser = await this.dbModifyFullUser(ctx, fullUser => {
             const plan = fullUser.plan;
-            const subTask = Service.getSubTaskById(plan, req.subTaskId);
-            const task = Service.getTaskById(plan, subTask.taskId);
-            const parentSubTask = subTask.parentSubTaskId ? Service.getSubTaskById(plan, subTask.parentSubTaskId) : null;
-            Service.getGoalById(plan, task.goalId);
+            const subTask = Handler.getSubTaskById(plan, req.subTaskId);
+            const task = Handler.getTaskById(plan, subTask.taskId);
+            const parentSubTask = subTask.parentSubTaskId ? Handler.getSubTaskById(plan, subTask.parentSubTaskId) : null;
+            Handler.getGoalById(plan, task.goalId);
 
             const subtasksPolicy = task.donePolicy.subtasks as SubtasksPolicy;
 
@@ -1197,7 +1199,7 @@ export class Service {
             } else if (!req.moveToTopLevel && req.parentSubTaskId !== undefined && parentSubTask !== null) {
                 // Move a child subtask to be a child of another task.
 
-                const newParentSubTask = Service.getSubTaskById(plan, req.parentSubTaskId);
+                const newParentSubTask = Handler.getSubTaskById(plan, req.parentSubTaskId);
 
                 if (newParentSubTask.taskId !== parentSubTask.taskId) {
                     throw new ServiceError(`Cannot move subtask with id ${subTask.id} to a different task non-explicitly`);
@@ -1209,7 +1211,7 @@ export class Service {
                     if (parentSubtaskWalker.parentSubTaskId === subTask.id) {
                         throw new ServiceError(`Cannot move subtask with id ${subTask.id} to one of its descendants`);
                     }
-                    parentSubtaskWalker = Service.getSubTaskById(plan, parentSubtaskWalker.parentSubTaskId);
+                    parentSubtaskWalker = Handler.getSubTaskById(plan, parentSubtaskWalker.parentSubTaskId);
                 }
 
                 subTask.parentSubTaskId = req.parentSubTaskId;
@@ -1235,7 +1237,7 @@ export class Service {
             } else if (!req.moveToTopLevel && req.parentSubTaskId !== undefined && parentSubTask === null) {
                 // Move a toplevel subtask to be a child of another task.
 
-                const newParentSubTask = Service.getSubTaskById(plan, req.parentSubTaskId);
+                const newParentSubTask = Handler.getSubTaskById(plan, req.parentSubTaskId);
 
                 if (newParentSubTask.taskId !== task.id) {
                     throw new ServiceError(`Cannot move subtask with id ${subTask.id} to a different task non-explicitly`);
@@ -1247,7 +1249,7 @@ export class Service {
                     if (parentSubtaskWalker.parentSubTaskId === subTask.id) {
                         throw new ServiceError(`Cannot move subtask with id ${subTask.id} to one of its descendants`);
                     }
-                    parentSubtaskWalker = Service.getSubTaskById(plan, parentSubtaskWalker.parentSubTaskId);
+                    parentSubtaskWalker = Handler.getSubTaskById(plan, parentSubtaskWalker.parentSubTaskId);
                 }
 
                 subTask.parentSubTaskId = req.parentSubTaskId;
@@ -1310,9 +1312,9 @@ export class Service {
 
         const newFullUser = await this.dbModifyFullUser(ctx, fullUser => {
             const plan = fullUser.plan;
-            const subTask = Service.getSubTaskById(plan, req.subTaskId);
-            const task = Service.getTaskById(plan, subTask.taskId);
-            Service.getGoalById(plan, task.goalId);
+            const subTask = Handler.getSubTaskById(plan, req.subTaskId);
+            const task = Handler.getTaskById(plan, subTask.taskId);
+            Handler.getGoalById(plan, task.goalId);
 
             if (req.title !== undefined) {
                 subTask.title = req.title;
@@ -1335,10 +1337,10 @@ export class Service {
             const plan = fullUser.plan;
             const schedule = fullUser.schedule;
 
-            const subTask = Service.getSubTaskById(plan, req.subTaskId);
-            const parentSubTask = subTask.parentSubTaskId ? Service.getSubTaskById(plan, subTask.parentSubTaskId) : null;
-            const task = Service.getTaskById(plan, subTask.taskId);
-            Service.getGoalById(plan, task.goalId, true);
+            const subTask = Handler.getSubTaskById(plan, req.subTaskId);
+            const parentSubTask = subTask.parentSubTaskId ? Handler.getSubTaskById(plan, subTask.parentSubTaskId) : null;
+            const task = Handler.getTaskById(plan, subTask.taskId);
+            Handler.getGoalById(plan, task.goalId, true);
 
             if (parentSubTask === null) {
                 const subTaskIndex = (task.donePolicy.subtasks as SubtasksPolicy).subTasksOrder.indexOf(subTask.id);
@@ -1348,8 +1350,8 @@ export class Service {
                 parentSubTask.subTasksOrder.splice(subTaskIndex, 1);
             }
 
-            const scheduledTaskEntry = Service.getCurrentActiveScheduledTaskEntry(schedule, task);
-            scheduledTaskEntry.isDone = Service.computeIsDone(task, scheduledTaskEntry);
+            const scheduledTaskEntry = Handler.getCurrentActiveScheduledTaskEntry(schedule, task);
+            scheduledTaskEntry.isDone = Handler.computeIsDone(task, scheduledTaskEntry);
 
             subTask.isArchived = true;
 
@@ -1410,13 +1412,13 @@ export class Service {
             const plan = fullUser.plan;
             const schedule = fullUser.schedule;
 
-            const metric = Service.getMetricById(plan, metricId);
+            const metric = Handler.getMetricById(plan, metricId);
 
             if (metric.type !== allowedType) {
                 throw new ServiceError(`Metric with id ${metricId} is not an ${allowedType}`);
             }
 
-            Service.getGoalById(plan, metric.goalId);
+            Handler.getGoalById(plan, metric.goalId);
 
             const collectedMetric = schedule.collectedMetricsByMetricId.get(metricId);
 
@@ -1447,16 +1449,16 @@ export class Service {
             const plan = fullUser.plan;
             const schedule = fullUser.schedule;
 
-            const scheduledTaskEntry = Service.getScheduledTaskEntryById(schedule, req.scheduledTaskEntryId);
-            const scheduledTask = Service.getScheduledTaskById(schedule, scheduledTaskEntry.scheduledTaskId);
-            const task = Service.getTaskById(plan, scheduledTask.taskId);
+            const scheduledTaskEntry = Handler.getScheduledTaskEntryById(schedule, req.scheduledTaskEntryId);
+            const scheduledTask = Handler.getScheduledTaskById(schedule, scheduledTaskEntry.scheduledTaskId);
+            const task = Handler.getTaskById(plan, scheduledTask.taskId);
 
             if (scheduledTaskEntry.doneStatus.type !== TaskDoneType.BOOLEAN) {
                 throw new ServiceError(`Cannot mark non-boolean type task entry with id ${req.scheduledTaskEntryId} as done`);
             }
 
             (scheduledTaskEntry.doneStatus.boolean as BooleanStatus).isDone = true;
-            scheduledTaskEntry.isDone = Service.computeIsDone(task, scheduledTaskEntry);
+            scheduledTaskEntry.isDone = Handler.computeIsDone(task, scheduledTaskEntry);
 
             schedule.version.minor++;
 
@@ -1477,10 +1479,10 @@ export class Service {
             const plan = fullUser.plan;
             const schedule = fullUser.schedule;
 
-            const scheduledTaskEntry = Service.getScheduledTaskEntryById(schedule, req.scheduledTaskEntryId);
-            const scheduledTask = Service.getScheduledTaskById(schedule, scheduledTaskEntry.scheduledTaskId);
-            const task = Service.getTaskById(plan, scheduledTask.taskId);
-            Service.getGoalById(plan, task.goalId);
+            const scheduledTaskEntry = Handler.getScheduledTaskEntryById(schedule, req.scheduledTaskEntryId);
+            const scheduledTask = Handler.getScheduledTaskById(schedule, scheduledTaskEntry.scheduledTaskId);
+            const task = Handler.getTaskById(plan, scheduledTask.taskId);
+            Handler.getGoalById(plan, task.goalId);
 
             if (scheduledTaskEntry.doneStatus.type !== TaskDoneType.SUBTASKS) {
                 throw new ServiceError(`Cannot mark non-subtask type task entry with id ${req.scheduledTaskEntryId} as done`);
@@ -1491,7 +1493,7 @@ export class Service {
             }
 
             (scheduledTaskEntry.doneStatus.subtasks as SubtasksStatus).doneSubTasks.add(req.subTaskId);
-            scheduledTaskEntry.isDone = Service.computeIsDone(task, scheduledTaskEntry);
+            scheduledTaskEntry.isDone = Handler.computeIsDone(task, scheduledTaskEntry);
 
             schedule.version.minor++;
 
@@ -1521,10 +1523,10 @@ export class Service {
             const plan = fullUser.plan;
             const schedule = fullUser.schedule;
 
-            const scheduledTaskEntry = Service.getScheduledTaskEntryById(schedule, req.scheduledTaskEntryId);
-            const scheduledTask = Service.getScheduledTaskById(schedule, scheduledTaskEntry.scheduledTaskId);
-            const task = Service.getTaskById(plan, scheduledTask.taskId);
-            Service.getGoalById(plan, task.goalId);
+            const scheduledTaskEntry = Handler.getScheduledTaskEntryById(schedule, req.scheduledTaskEntryId);
+            const scheduledTask = Handler.getScheduledTaskById(schedule, scheduledTaskEntry.scheduledTaskId);
+            const task = Handler.getTaskById(plan, scheduledTask.taskId);
+            Handler.getGoalById(plan, task.goalId);
 
             if (scheduledTaskEntry.doneStatus.type !== TaskDoneType.COUNTER) {
                 throw new ServiceError(`Cannot increment non-counter type task entry with id ${req.scheduledTaskEntryId}`);
@@ -1533,7 +1535,7 @@ export class Service {
             // Find the one scheduled task.
             const increment = req.increment !== undefined ? req.increment : 1;
             (scheduledTaskEntry.doneStatus.counter as CounterStatus).currentValue += increment;
-            scheduledTaskEntry.isDone = Service.computeIsDone(task, scheduledTaskEntry);
+            scheduledTaskEntry.isDone = Handler.computeIsDone(task, scheduledTaskEntry);
 
             schedule.version.minor++;
 
@@ -1558,10 +1560,10 @@ export class Service {
             const plan = fullUser.plan;
             const schedule = fullUser.schedule;
 
-            const scheduledTaskEntry = Service.getScheduledTaskEntryById(schedule, req.scheduledTaskEntryId);
-            const scheduledTask = Service.getScheduledTaskById(schedule, scheduledTaskEntry.scheduledTaskId);
-            const task = Service.getTaskById(plan, scheduledTask.taskId);
-            Service.getGoalById(plan, task.goalId);
+            const scheduledTaskEntry = Handler.getScheduledTaskEntryById(schedule, req.scheduledTaskEntryId);
+            const scheduledTask = Handler.getScheduledTaskById(schedule, scheduledTaskEntry.scheduledTaskId);
+            const task = Handler.getTaskById(plan, scheduledTask.taskId);
+            Handler.getGoalById(plan, task.goalId);
 
             if (scheduledTaskEntry.doneStatus.type !== TaskDoneType.GAUGE) {
                 throw new ServiceError(`Cannot set non-gauge type task entry with id ${req.scheduledTaskEntryId}`);
@@ -1569,7 +1571,7 @@ export class Service {
 
             // Find the one scheduled task.
             (scheduledTaskEntry.doneStatus.gauge as GaugeStatus).currentValue = req.level;
-            scheduledTaskEntry.isDone = Service.computeIsDone(task, scheduledTaskEntry);
+            scheduledTaskEntry.isDone = Handler.computeIsDone(task, scheduledTaskEntry);
 
             schedule.version.minor++;
 
@@ -1588,7 +1590,7 @@ export class Service {
         const newFullUser = await this.dbModifyFullUser(ctx, fullUser => {
             const schedule = fullUser.schedule;
 
-            const scheduledTaskEntry = Service.getScheduledTaskEntryById(schedule, req.scheduledTaskEntryId);
+            const scheduledTaskEntry = Handler.getScheduledTaskEntryById(schedule, req.scheduledTaskEntryId);
 
             if (req.inProgress !== undefined) {
                 if (req.inProgress && scheduledTaskEntry.inProgress) {
@@ -1659,7 +1661,7 @@ export class Service {
                     const lastEntry = scheduledTask.entries[scheduledTask.entries.length - 1]; // Guaranteed to always exist!
                     const lastEntryRepeatScheduleAt = lastEntry.repeatScheduleAt.startOf("day"); // Should already be here!
 
-                    const goal = Service.getGoalById(plan, task.goalId, true, true);
+                    const goal = Handler.getGoalById(plan, task.goalId, true, true);
 
                     if (goal.isArchived || goal.isDone) {
                         continue;
@@ -1696,7 +1698,7 @@ export class Service {
                             scheduledTaskId: scheduledTask.id,
                             inProgress: false,
                             isDone: false,
-                            doneStatus: Service.generateDoneStatusFromPolicy(task),
+                            doneStatus: Handler.generateDoneStatusFromPolicy(task),
                             repeatScheduleAt: date
                         });
                         modifiedSomething = true;
@@ -1881,7 +1883,7 @@ export class Service {
                     throw e;
                 }
 
-                const initialFullUser = await Service.getEmptyFullUser(email, password);
+                const initialFullUser = await Handler.getEmptyFullUser(email, password);
                 const newUser = await this.dbSaveUser(trx, initialFullUser.user);
                 const newPlan = await this.dbSavePlan(trx, newUser.id, initialFullUser.plan);
                 await this.dbSaveSchedule(trx, newUser.id, newPlan.id, initialFullUser.schedule);
@@ -1893,8 +1895,8 @@ export class Service {
 
     private async dbGetUserByEmailAndPassword(conn: knex, email: string, password: string): Promise<User> {
         const userRows = await conn
-            .from(Service.USER_TABLE)
-            .select(Service.USER_FIELDS)
+            .from(Handler.USER_TABLE)
+            .select(Handler.USER_FIELDS)
             .where("email", email)
             .limit(1);
 
@@ -1914,15 +1916,15 @@ export class Service {
                     return reject(new ServiceError(`Invalid password for user ${email}`));
                 }
 
-                resolve(Service.dbUserToUser(userRows[0]));
+                resolve(Handler.dbUserToUser(userRows[0]));
             });
         });
     }
 
     private async dbGetUserById(conn: knex, id: UserId): Promise<User> {
         const userRows = await conn
-            .from(Service.USER_TABLE)
-            .select(Service.USER_FIELDS)
+            .from(Handler.USER_TABLE)
+            .select(Handler.USER_FIELDS)
             .where("id", id)
             .limit(1);
 
@@ -1930,24 +1932,24 @@ export class Service {
             throw new ServiceError(`No user with id ${id}`);
         }
 
-        return Service.dbUserToUser(userRows[0]);
+        return Handler.dbUserToUser(userRows[0]);
     }
 
     private async dbGetAllActiveUsers(conn: knex): Promise<User[]> {
         const userRows = await conn
-            .from(Service.USER_TABLE)
-            .select(Service.USER_FIELDS)
+            .from(Handler.USER_TABLE)
+            .select(Handler.USER_FIELDS)
             .whereRaw("(user_json->>'isArchived')::boolean = FALSE");
 
-        return userRows.map((ur: any) => Service.dbUserToUser(ur));
+        return userRows.map((ur: any) => Handler.dbUserToUser(ur));
     }
 
     private async dbSaveUser(conn: knex, user: User): Promise<User> {
         const userRows = await conn
-            .from(Service.USER_TABLE)
-            .returning(Service.USER_FIELDS)
+            .from(Handler.USER_TABLE)
+            .returning(Handler.USER_FIELDS)
             .insert({
-                user_json: Service.userToDbUser(user),
+                user_json: Handler.userToDbUser(user),
                 email: user.email,
                 password_hash: user.passwordHash
             });
@@ -1956,15 +1958,15 @@ export class Service {
             throw new ServiceError(`Could not insert user ${user.id}`);
         }
 
-        return Service.dbUserToUser(userRows[0]);
+        return Handler.dbUserToUser(userRows[0]);
     }
 
     private async dbUpdateUser(conn: knex, user: User): Promise<User> {
         const userRows = await conn
-            .from(Service.USER_TABLE)
-            .returning(Service.USER_FIELDS)
+            .from(Handler.USER_TABLE)
+            .returning(Handler.USER_FIELDS)
             .update({
-                user_json: Service.userToDbUser(user),
+                user_json: Handler.userToDbUser(user),
                 email: user.email,
                 password_hash: user.passwordHash
             })
@@ -1974,13 +1976,13 @@ export class Service {
             throw new ServiceError(`Could not update user ${user.id}`);
         }
 
-        return Service.dbUserToUser(userRows[0]);
+        return Handler.dbUserToUser(userRows[0]);
     }
 
     private async dbGetLatestPlan(conn: knex, userId: UserId): Promise<Plan> {
         const planRows = await conn
-            .from(Service.PLAN_TABLE)
-            .select(Service.PLAN_FIELDS)
+            .from(Handler.PLAN_TABLE)
+            .select(Handler.PLAN_FIELDS)
             .orderBy("version_major", "desc")
             .orderBy("version_minor", "desc")
             .where("user_id", userId)
@@ -1990,17 +1992,17 @@ export class Service {
             throw new ServiceError(`No plan for user ${userId}`);
         }
 
-        return Service.dbPlanToPlan(planRows[0]);
+        return Handler.dbPlanToPlan(planRows[0]);
     }
 
     private async dbSavePlan(conn: knex, userId: UserId, plan: Plan): Promise<Plan> {
         const planRows = await conn
-            .from(Service.PLAN_TABLE)
-            .returning(Service.PLAN_FIELDS)
+            .from(Handler.PLAN_TABLE)
+            .returning(Handler.PLAN_FIELDS)
             .insert({
                 version_major: plan.version.major,
                 version_minor: plan.version.minor,
-                plan_json: Service.planToDbPlan(plan),
+                plan_json: Handler.planToDbPlan(plan),
                 user_id: userId
             });
 
@@ -2008,13 +2010,13 @@ export class Service {
             throw new ServiceError(`Could not insert plan for ${userId}`);
         }
 
-        return Service.dbPlanToPlan(planRows[0]);
+        return Handler.dbPlanToPlan(planRows[0]);
     }
 
     private async dbGetLatestSchedule(conn: knex, userId: UserId, planId: PlanId): Promise<Schedule> {
         const scheduleRows = await conn
-            .from(Service.SCHEDULE_TABLE)
-            .select(Service.SCHEDULE_FIELDS)
+            .from(Handler.SCHEDULE_TABLE)
+            .select(Handler.SCHEDULE_FIELDS)
             .orderBy("version_major", "desc")
             .orderBy("version_minor", "desc")
             .where("user_id", userId)
@@ -2025,17 +2027,17 @@ export class Service {
             throw new ServiceError(`No schedule for user ${userId} and plan ${planId}`);
         }
 
-        return Service.dbScheduleToSchedule(scheduleRows[0]);
+        return Handler.dbScheduleToSchedule(scheduleRows[0]);
     }
 
     private async dbSaveSchedule(conn: knex, userId: UserId, planId: PlanId, schedule: Schedule): Promise<Schedule> {
         const scheduleRows = await conn
-            .from(Service.SCHEDULE_TABLE)
-            .returning(Service.SCHEDULE_FIELDS)
+            .from(Handler.SCHEDULE_TABLE)
+            .returning(Handler.SCHEDULE_FIELDS)
             .insert({
                 version_major: schedule.version.major,
                 version_minor: schedule.version.minor,
-                schedule_json: Service.scheduleToDbSchedule(schedule),
+                schedule_json: Handler.scheduleToDbSchedule(schedule),
                 user_id: userId,
                 plan_id: planId
             });
@@ -2044,7 +2046,7 @@ export class Service {
             throw new ServiceError(`Could not insert sechedule for ${userId} and plan ${planId}`);
         }
 
-        return Service.dbScheduleToSchedule(scheduleRows[0]);
+        return Handler.dbScheduleToSchedule(scheduleRows[0]);
     }
 
     private static dbUserToUser(userRow: any): User {
@@ -2055,7 +2057,7 @@ export class Service {
             email: userRow.email,
             passwordHash: userRow.password_hash,
             isArchived: dbUser.isArchived,
-            vacations: dbUser.vacations.map((v: any) => Service.dbVacationToVacation(v)),
+            vacations: dbUser.vacations.map((v: any) => Handler.dbVacationToVacation(v)),
             idSerialHack: dbUser.idSerialHack,
             vacationsById: new Map<VacationId, Vacation>()
         };
@@ -2079,7 +2081,7 @@ export class Service {
     private static userToDbUser(user: User): any {
         return {
             isArchived: user.isArchived,
-            vacations: user.vacations.map(v => Service.vacationToDbVacation(v)),
+            vacations: user.vacations.map(v => Handler.vacationToDbVacation(v)),
             idSerialHack: user.idSerialHack
         };
     }
@@ -2122,7 +2124,7 @@ export class Service {
         const plan: Plan = {
             id: planRow.id,
             version: dbPlan.version,
-            goals: dbPlan.goals.map((g: any) => Service.dbGoalToGoal(g)),
+            goals: dbPlan.goals.map((g: any) => Handler.dbGoalToGoal(g)),
             goalsOrder: dbPlan.goalsOrder,
             isSuspended: dbPlan.isSuspended,
             idSerialHack: dbPlan.idSerialHack,
@@ -2166,16 +2168,16 @@ export class Service {
             description: goalRow.description,
             range: goalRow.range,
             deadline: goalRow.deadline ? moment.unix(goalRow.deadline).utc() : undefined,
-            subgoals: goalRow.subgoals.map((g: any) => Service.dbGoalToGoal(g)),
+            subgoals: goalRow.subgoals.map((g: any) => Handler.dbGoalToGoal(g)),
             subgoalsById: new Map<GoalId, Goal>(),
             subgoalsOrder: goalRow.subgoalsOrder,
-            metrics: goalRow.metrics.map((m: any) => Service.dbMetricToMetric(m)),
+            metrics: goalRow.metrics.map((m: any) => Handler.dbMetricToMetric(m)),
             metricsById: new Map<MetricId, Metric>(),
             metricsOrder: goalRow.metricsOrder,
-            tasks: goalRow.tasks.map((t: any) => Service.dbTaskToTask(t)),
+            tasks: goalRow.tasks.map((t: any) => Handler.dbTaskToTask(t)),
             tasksById: new Map<TaskId, Task>(),
             tasksOrder: goalRow.tasksOrder,
-            boards: goalRow.boards.map((b: any) => Service.dbBoardToBoard(b)),
+            boards: goalRow.boards.map((b: any) => Handler.dbBoardToBoard(b)),
             isSuspended: goalRow.isSuspended,
             isDone: goalRow.isDone,
             isArchived: goalRow.isArchived
@@ -2209,7 +2211,7 @@ export class Service {
             deadline: taskRow.deadline ? moment.unix(taskRow.deadline).utc() : undefined,
             repeatSchedule: taskRow.repeatSchedule,
             reminderPolicy: taskRow.reminderPolicy,
-            donePolicy: Service.dbTaskDonePolicyToTaskDonePolicy(taskRow.donePolicy),
+            donePolicy: Handler.dbTaskDonePolicyToTaskDonePolicy(taskRow.donePolicy),
             isSuspended: taskRow.isSuspended,
             isArchived: taskRow.isArchived
         };
@@ -2224,22 +2226,22 @@ export class Service {
             case TaskDoneType.BOOLEAN:
                 return {
                     type: TaskDoneType.BOOLEAN,
-                    boolean: Service.dbBooleanPolicyToBooleanPolicy(donePolicyRow.boolean)
+                    boolean: Handler.dbBooleanPolicyToBooleanPolicy(donePolicyRow.boolean)
                 };
             case TaskDoneType.SUBTASKS:
                 return {
                     type: TaskDoneType.SUBTASKS,
-                    subtasks: Service.dbSubtasksPolicyToSubtasksPolicy(donePolicyRow.subtasks)
+                    subtasks: Handler.dbSubtasksPolicyToSubtasksPolicy(donePolicyRow.subtasks)
                 };
             case TaskDoneType.COUNTER:
                 return {
                     type: TaskDoneType.COUNTER,
-                    counter: Service.dbCounterPolicyToCounterPolicy(donePolicyRow.counter)
+                    counter: Handler.dbCounterPolicyToCounterPolicy(donePolicyRow.counter)
                 };
             case TaskDoneType.GAUGE:
                 return {
                     type: TaskDoneType.GAUGE,
-                    gauge: Service.dbGaugePolicyToGaugePolicy(donePolicyRow.gauge)
+                    gauge: Handler.dbGaugePolicyToGaugePolicy(donePolicyRow.gauge)
                 };
             default:
                 throw new CriticalServiceError(`Invalid done policy type ${type}`);
@@ -2259,7 +2261,7 @@ export class Service {
         }
 
         const subtasksPolicy = {
-            subTasks: subtasksPolicyRow.subTasks.map((st: any) => Service.dbSubTaskToSubTask(st)),
+            subTasks: subtasksPolicyRow.subTasks.map((st: any) => Handler.dbSubTaskToSubTask(st)),
             subTasksOrder: subtasksPolicyRow.subTasksOrder,
             subTasksById: new Map<SubTaskId, SubTask>()
         };
@@ -2277,7 +2279,7 @@ export class Service {
             taskId: subTaskRow.taskId,
             parentSubTaskId: subTaskRow.parentSubTaskId,
             title: subTaskRow.title,
-            subTasks: subTaskRow.subTasks.map((st: any) => Service.dbSubTaskToSubTask(st)),
+            subTasks: subTaskRow.subTasks.map((st: any) => Handler.dbSubTaskToSubTask(st)),
             subTasksById: new Map<SubTaskId, SubTask>(),
             subTasksOrder: subTaskRow.subTasksOrder,
             isArchived: subTaskRow.isArchived
@@ -2316,7 +2318,7 @@ export class Service {
     private static planToDbPlan(plan: Plan): any {
         return {
             version: plan.version,
-            goals: plan.goals.map(g => Service.goalToDbGoal(g)),
+            goals: plan.goals.map(g => Handler.goalToDbGoal(g)),
             goalsOrder: plan.goalsOrder,
             isSuspended: plan.isSuspended,
             idSerialHack: plan.idSerialHack,
@@ -2333,13 +2335,13 @@ export class Service {
             description: goal.description,
             range: goal.range,
             deadline: goal.deadline ? goal.deadline.unix() : undefined,
-            subgoals: goal.subgoals.map(g => Service.goalToDbGoal(g)),
+            subgoals: goal.subgoals.map(g => Handler.goalToDbGoal(g)),
             subgoalsOrder: goal.subgoalsOrder,
-            metrics: goal.metrics.map(m => Service.metricToDbMetric(m)),
+            metrics: goal.metrics.map(m => Handler.metricToDbMetric(m)),
             metricsOrder: goal.metricsOrder,
-            tasks: goal.tasks.map(t => Service.taskToDbTask(t)),
+            tasks: goal.tasks.map(t => Handler.taskToDbTask(t)),
             tasksOrder: goal.tasksOrder,
-            boards: goal.boards.map(b => Service.boardToDbBoard(b)),
+            boards: goal.boards.map(b => Handler.boardToDbBoard(b)),
             isSuspended: goal.isSuspended,
             isDone: goal.isDone,
             isArchived: goal.isArchived
@@ -2368,7 +2370,7 @@ export class Service {
             deadline: task.deadline ? task.deadline.unix() : undefined,
             repeatSchedule: task.repeatSchedule,
             reminderPolicy: task.reminderPolicy,
-            donePolicy: Service.taskDonePolicyToDbTaskDonePolicy(task.donePolicy),
+            donePolicy: Handler.taskDonePolicyToDbTaskDonePolicy(task.donePolicy),
             isSuspended: task.isSuspended,
             isArchived: task.isArchived
         };
@@ -2379,22 +2381,22 @@ export class Service {
             case TaskDoneType.BOOLEAN:
                 return {
                     type: TaskDoneType.BOOLEAN,
-                    boolean: Service.booleanPolicyToDbBooleanPolicy(taskDonePolicy.boolean as BooleanPolicy)
+                    boolean: Handler.booleanPolicyToDbBooleanPolicy(taskDonePolicy.boolean as BooleanPolicy)
                 };
             case TaskDoneType.SUBTASKS:
                 return {
                     type: TaskDoneType.SUBTASKS,
-                    subtasks: Service.subtasksPolicyToDbSubtasksPolicy(taskDonePolicy.subtasks as SubtasksPolicy)
+                    subtasks: Handler.subtasksPolicyToDbSubtasksPolicy(taskDonePolicy.subtasks as SubtasksPolicy)
                 };
             case TaskDoneType.COUNTER:
                 return {
                     type: TaskDoneType.COUNTER,
-                    counter: Service.counterPolicyToDbCounterPolicy(taskDonePolicy.counter as CounterPolicy)
+                    counter: Handler.counterPolicyToDbCounterPolicy(taskDonePolicy.counter as CounterPolicy)
                 };
             case TaskDoneType.GAUGE:
                 return {
                     type: TaskDoneType.GAUGE,
-                    gauge: Service.gaugePolicyToDbGaugePolicy(taskDonePolicy.gauge as GaugePolicy)
+                    gauge: Handler.gaugePolicyToDbGaugePolicy(taskDonePolicy.gauge as GaugePolicy)
                 };
         }
     }
@@ -2405,7 +2407,7 @@ export class Service {
 
     private static subtasksPolicyToDbSubtasksPolicy(subtasksPolicy: SubtasksPolicy): any {
         return {
-            subTasks: subtasksPolicy.subTasks.map(st => Service.subTaskToDbSubTask(st)),
+            subTasks: subtasksPolicy.subTasks.map(st => Handler.subTaskToDbSubTask(st)),
             subTasksOrder: subtasksPolicy.subTasksOrder
         };
     }
@@ -2432,7 +2434,7 @@ export class Service {
             taskId: subTask.taskId,
             parentSubTaskId: subTask.parentSubTaskId,
             title: subTask.title,
-            subTasks: subTask.subTasks.map(st => Service.subTaskToDbSubTask(st)),
+            subTasks: subTask.subTasks.map(st => Handler.subTaskToDbSubTask(st)),
             subTasksOrder: subTask.subTasksOrder,
             isArchived: subTask.isArchived
         };
@@ -2476,7 +2478,7 @@ export class Service {
                             scheduledTaskId: ste.scheduledTaskId,
                             inProgress: ste.inProgress,
                             isDone: ste.isDone,
-                            doneStatus: Service.dbScheduledTaskDoneStatusToScheduledTaskDoneStatus(ste.doneStatus),
+                            doneStatus: Handler.dbScheduledTaskDoneStatusToScheduledTaskDoneStatus(ste.doneStatus),
                             repeatScheduleAt: moment.unix(ste.repeatScheduleAt).utc()
                         };
                     })
@@ -2510,22 +2512,22 @@ export class Service {
             case TaskDoneType.BOOLEAN:
                 return {
                     type: TaskDoneType.BOOLEAN,
-                    boolean: Service.dbBooleanStatusToBooleanStatus(scheduledTaskDoneStatusRow.boolean)
+                    boolean: Handler.dbBooleanStatusToBooleanStatus(scheduledTaskDoneStatusRow.boolean)
                 };
             case TaskDoneType.SUBTASKS:
                 return {
                     type: TaskDoneType.SUBTASKS,
-                    subtasks: Service.dbSubtasksStatusToSubtasksStatus(scheduledTaskDoneStatusRow.subtasks)
+                    subtasks: Handler.dbSubtasksStatusToSubtasksStatus(scheduledTaskDoneStatusRow.subtasks)
                 };
             case TaskDoneType.COUNTER:
                 return {
                     type: TaskDoneType.COUNTER,
-                    counter: Service.dbCounterStatusToCounterStatus(scheduledTaskDoneStatusRow.counter)
+                    counter: Handler.dbCounterStatusToCounterStatus(scheduledTaskDoneStatusRow.counter)
                 };
             case TaskDoneType.GAUGE:
                 return {
                     type: TaskDoneType.GAUGE,
-                    gauge: Service.dbGaugeStatusToGaugeStatus(scheduledTaskDoneStatusRow.gauge)
+                    gauge: Handler.dbGaugeStatusToGaugeStatus(scheduledTaskDoneStatusRow.gauge)
                 };
             default:
                 throw new CriticalServiceError(`Invalid task done type ${scheduledTaskDoneStatusRow.type}`);
@@ -2583,7 +2585,7 @@ export class Service {
                             scheduledTaskId: ste.scheduledTaskId,
                             inProgress: ste.inProgress,
                             isDone: ste.isDone,
-                            doneStatus: Service.scheduledTaskDoneStatusToDbScheduledTaskDoneStatus(ste.doneStatus),
+                            doneStatus: Handler.scheduledTaskDoneStatusToDbScheduledTaskDoneStatus(ste.doneStatus),
                             repeatScheduleAt: ste.repeatScheduleAt.unix()
                         };
                     })
@@ -2598,22 +2600,22 @@ export class Service {
             case TaskDoneType.BOOLEAN:
                 return {
                     type: TaskDoneType.BOOLEAN,
-                    boolean: Service.booleanStatusToDbBooleanStatus(scheduledTaskDoneStatus.boolean as BooleanStatus)
+                    boolean: Handler.booleanStatusToDbBooleanStatus(scheduledTaskDoneStatus.boolean as BooleanStatus)
                 };
             case TaskDoneType.SUBTASKS:
                 return {
                     type: TaskDoneType.SUBTASKS,
-                    subtasks: Service.subtasksStatusToDbSubtasksStatus(scheduledTaskDoneStatus.subtasks as SubtasksStatus)
+                    subtasks: Handler.subtasksStatusToDbSubtasksStatus(scheduledTaskDoneStatus.subtasks as SubtasksStatus)
                 };
             case TaskDoneType.COUNTER:
                 return {
                     type: TaskDoneType.COUNTER,
-                    counter: Service.counterStatusToDbCounterStatus(scheduledTaskDoneStatus.counter as CounterStatus)
+                    counter: Handler.counterStatusToDbCounterStatus(scheduledTaskDoneStatus.counter as CounterStatus)
                 };
             case TaskDoneType.GAUGE:
                 return {
                     type: TaskDoneType.GAUGE,
-                    gauge: Service.gaugeStatusToDbGaugeStatus(scheduledTaskDoneStatus.gauge as GaugeStatus)
+                    gauge: Handler.gaugeStatusToDbGaugeStatus(scheduledTaskDoneStatus.gauge as GaugeStatus)
                 };
         }
     }
@@ -2644,7 +2646,7 @@ export class Service {
 
     private static async getEmptyFullUser(email: string, password: string): Promise<FullUser> {
         return new Promise<FullUser>((resolve, reject) => {
-            bcrypt.hash(password, Service.BCRYPT_ROUNDS, (err, passwordHash) => {
+            bcrypt.hash(password, Handler.BCRYPT_ROUNDS, (err, passwordHash) => {
 
                 if (err) {
                     return reject(new ServiceError(`Crypto error ${err.message}`));
@@ -2861,7 +2863,7 @@ export class Service {
     }
 
     private static getCurrentActiveScheduledTaskEntry(schedule: Schedule, task: Task): ScheduledTaskEntry {
-        const scheduledTask = Service.getScheduledTaskByTaskId(schedule, task.id);
+        const scheduledTask = Handler.getScheduledTaskByTaskId(schedule, task.id);
         // Assume it's the last entry and we are up to date!
         return scheduledTask.entries[scheduledTask.entries.length - 1];
     }
@@ -2875,7 +2877,7 @@ function needsAuth<Req, Res>(_target: Object, _propertyKey: string, descriptor: 
     descriptor.value = async function (ctx: Context, req: Req) {
 
         const userId = await new Promise<number>((resolve, reject) => {
-            jwt.verify(ctx.auth.token, Service.AUTH_TOKEN_ENCRYPTION_KEY, (err, jwtDecoded) => {
+            jwt.verify(ctx.auth.token, Handler.AUTH_TOKEN_ENCRYPTION_KEY, (err, jwtDecoded) => {
                 if (err) {
                     return reject(new ServiceError(`Invalid auth token`));
                 }

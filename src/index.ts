@@ -6,7 +6,7 @@ import * as os from "os";
 import * as path from "path";
 import * as fs from "fs-extra";
 
-import {AuthInfo, Context, CreateTaskRequest, Service, UpdateTaskRequest} from "./service/Service";
+import {AuthInfo, Context, CreateTaskRequest, Handler, UpdateTaskRequest} from "./service/Handler";
 import {
     CollectedMetric,
     CounterPolicy,
@@ -32,7 +32,7 @@ import {
     TaskReminderPolicy,
     TaskUrgency,
     User
-} from "./service/entities";
+} from "./shared/entities";
 
 const Command = require('vorpal/dist/command.js');
 
@@ -58,7 +58,7 @@ async function main() {
         }
     });
 
-    const service = new Service(conn);
+    const service = new Handler(conn);
     await service.init();
 
     const vorpal = (Vorpal as any)();
