@@ -30,7 +30,7 @@ export class ServiceClientError extends Error {
 export class ServiceClient {
 
     private static readonly DEFAULT_TIMEOUT_MS = 1000;
-    private static readonly DEFAULT_MAX_RESPONSE_SIZE_BYTES = 1 * 1024 * 1024; // 1 MB
+    private static readonly DEFAULT_MAX_RESPONSE_SIZE_BYTES = 1024 * 1024; // 1 MB
 
     private readonly transporter: axios.AxiosInstance;
 
@@ -56,11 +56,22 @@ export class ServiceClient {
             throw new ServiceClientError(ServiceResponseErrors.TRANSPORT_ERROR, e.toString());
         }
 
-        if (response.code === ServiceResponseErrors.OK) {
-            return response.data as Res;
-        } else {
+        if (response.code !== ServiceResponseErrors.OK) {
             throw new ServiceClientError(response.code, response.error as string);
         }
+
+        const responseData = response.data as Res;
+
+        if (!this.validateResponseData(responseData)) {
+            throw new ServiceClientError(ServiceResponseErrors.RESPONSE_VALIDATION_ERROR, "Response validation");
+        }
+
+        return responseData;
+    }
+
+    private validateResponseData<Res extends RpcRes>(_res: Res) {
+        // TODO(horia141): figure out response validation!
+        return true;
     }
 }
 
@@ -73,8 +84,10 @@ export interface ServiceHandlerMap {
 export enum ServiceResponseErrors {
     OK = 0,
     JSON_PARSING_ERROR = 1000,
-    HANDLER_ERROR = 1001,
-    TRANSPORT_ERROR = 2000
+    REQUEST_VALIDATION_ERROR = 1000,
+    HANDLER_ERROR = 1002,
+    TRANSPORT_ERROR = 2000,
+    RESPONSE_VALIDATION_ERROR = 2001
 }
 
 export interface ServiceResponse<Res extends RpcRes> {
@@ -140,6 +153,16 @@ export class ServiceServer {
                 const ctx = {};
                 const requestData = req.body;
 
+                if (!this.validateRequestData(requestData)) {
+                    const response: ServiceResponse<any> = {
+                        code: ServiceResponseErrors.REQUEST_VALIDATION_ERROR,
+                        error: "Request validation"
+                    };
+
+                    res.json(response);
+                    res.end();
+                }
+
                 try {
                     const responseData = await methodHandler.call(this.handler, ctx, requestData);
                     const response: ServiceResponse<any> = {
@@ -173,5 +196,10 @@ export class ServiceServer {
         });
 
         return app;
+    }
+
+    private validateRequestData<Req extends RpcReq>(_req: Req) {
+        // TODO(horia141): figure out some validation here!
+        return true;
     }
 }
