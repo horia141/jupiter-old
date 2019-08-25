@@ -92,27 +92,25 @@ export class ServiceServer {
     public buildRouter(): express.Application {
         const app = express();
 
-        app.use((req: express.Request, res: express.Response, next: express.NextFunction) => {
-            express.json()(req, res, (err) => {
-                if (err) {
-                    const response: ServiceResponse<any> = {
-                        code: ServiceResponseErrors.JSON_PARSING_ERROR,
-                        error: err.toString()
-                    };
-
-                    res.json(response);
-                    res.end();
-                    return;
-                }
-
-                next();
-            })
-        });
-
         for (const methodName of Object.keys(this.handler)) {
             const methodHandler = this.handler[methodName];
 
-            app.post(`/method/${methodName}`, async (req: express.Request, res: express.Response) => {
+            app.post(`/method/${methodName}`, (req: express.Request, res: express.Response, next: express.NextFunction) => {
+                express.json()(req, res, (err) => {
+                    if (err) {
+                        const response: ServiceResponse<any> = {
+                            code: ServiceResponseErrors.JSON_PARSING_ERROR,
+                            error: err.toString()
+                        };
+
+                        res.json(response);
+                        res.end();
+                        return;
+                    }
+
+                    next();
+                })
+            }, async (req: express.Request, res: express.Response) => {
                 const ctx = {};
                 const requestData = req.body;
 
@@ -136,6 +134,17 @@ export class ServiceServer {
                 }
             });
         }
+
+        app.get("/info", (_req: express.Request, res: express.Response) => {
+            let message = "";
+            for (const methodName of Object.keys(this.handler)) {
+                message += `Method: ${methodName}`;
+            }
+
+            res.send(message);
+            res.status(200);
+            res.end();
+        });
 
         return app;
     }
