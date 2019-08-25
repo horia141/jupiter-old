@@ -66,7 +66,7 @@ export class ServiceClient {
 
 type ServiceHandlerMethod<Req extends RpcReq, Res extends RpcRes> = (ctx: RpcContext, req: Req) => Promise<Res>;
 
-export interface ServiceHandler {
+export interface ServiceHandlerMap {
     [methodName: string]: ServiceHandlerMethod<any, any>;
 }
 
@@ -83,17 +83,43 @@ export interface ServiceResponse<Res extends RpcRes> {
     data?: Res;
 }
 
+export function rpcHandler<Req extends RpcReq, Res extends RpcRes>(proto: Object, propertyKey: string, descriptor: TypedPropertyDescriptor<ServiceHandlerMethod<Req, Res>>): TypedPropertyDescriptor<ServiceHandlerMethod<Req, Res>> {
+    if (descriptor.value === undefined) {
+        throw new Error(`Cannot have an absent rpc handler ${propertyKey} for ${proto.constructor.name}`);
+    }
+
+    const originalMethod = descriptor.value;
+
+    if (!proto.hasOwnProperty("__serviceHandler")) {
+        (proto as any).__serviceHandler = {} as ServiceHandlerMap;
+    }
+
+    (proto as any).__serviceHandler[propertyKey] = originalMethod;
+
+    return descriptor;
+}
+
 export class ServiceServer {
 
+    private readonly handlerMap: ServiceHandlerMap;
+
     public constructor(
-        private readonly handler: ServiceHandler) {
+        private readonly handler: object) {
+
+        const proto = Object.getPrototypeOf(this.handler);
+
+        if (proto.hasOwnProperty("__serviceHandler")) {
+            this.handlerMap = (proto as any).__serviceHandler as ServiceHandlerMap;
+        } else {
+            this.handlerMap = {};
+        }
     }
 
     public buildRouter(): express.Application {
         const app = express();
 
-        for (const methodName of Object.keys(this.handler)) {
-            const methodHandler = this.handler[methodName];
+        for (const methodName of Object.keys(this.handlerMap)) {
+            const methodHandler = this.handlerMap[methodName];
 
             app.post(`/method/${methodName}`, (req: express.Request, res: express.Response, next: express.NextFunction) => {
                 express.json()(req, res, (err) => {
@@ -115,7 +141,7 @@ export class ServiceServer {
                 const requestData = req.body;
 
                 try {
-                    const responseData = await methodHandler(ctx, requestData);
+                    const responseData = await methodHandler.call(this.handler, ctx, requestData);
                     const response: ServiceResponse<any> = {
                         code: ServiceResponseErrors.OK,
                         data: responseData
@@ -137,7 +163,7 @@ export class ServiceServer {
 
         app.get("/info", (_req: express.Request, res: express.Response) => {
             let message = "";
-            for (const methodName of Object.keys(this.handler)) {
+            for (const methodName of Object.keys(this.handlerMap)) {
                 message += `Method: ${methodName}`;
             }
 

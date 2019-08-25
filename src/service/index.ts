@@ -1,16 +1,23 @@
 import * as express from "express";
 
-import { ServiceServer } from "../dsrpc";
+import {rpcHandler, ServiceServer} from "../dsrpc";
 
 const app = express();
 
-const handler = {
-    "getOrCreateUser": async (_ctx: object, _req: {x: number, y: number}) => {
-        return Promise.reject(new Error("fo"));
-        // return Promise.resolve({foo: "bar", req: req});
-    }
-};
+class Handler {
 
+    @rpcHandler
+    public async getOrCreateUser(_ctx: object, req: {x: number, y: number}): Promise<{foo: string, req: any}> {
+        // return Promise.reject(new Error("fo"));
+        return Promise.resolve({foo: "bar", req: req});
+    }
+
+    public toString(): string {
+        return "FOO";
+    }
+}
+
+const handler = new Handler();
 const server = new ServiceServer(handler);
 
 app.use("/api", server.buildRouter());
