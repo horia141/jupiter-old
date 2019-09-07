@@ -1,8 +1,8 @@
 import * as express from "express";
+import * as knex from "knex";
 
 import {ServiceServer} from "../shared/dsrpc";
 import {Handler} from "./Handler";
-import * as knex from "knex";
 
 function main() {
 
