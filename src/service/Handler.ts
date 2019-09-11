@@ -3,7 +3,6 @@ import {Transaction} from "knex";
 import * as moment from "moment";
 import * as EmailValidator from 'email-validator';
 import * as bcrypt from "bcrypt";
-import * as jwt from "jsonwebtoken";
 
 import {
     Board,
@@ -134,10 +133,10 @@ export class Handler {
         };
     }
 
-    @needsAuth
-    public async archiveUser(ctx: Context, _req: ArchiveUserRequest): Promise<ArchiveUserResponse> {
+    @rpcHandler @rpcNeedsAuth
+    public async archiveUser(ctx: RpcContext<Auth>, _req: ArchiveUserRequest): Promise<ArchiveUserResponse> {
 
-        await this.dbModifyFullUser(ctx, fullUser => {
+        await this.dbModifyFullUser(ctx.getAuth().userId, fullUser => {
             const user = fullUser.user;
 
             user.isArchived = true;
@@ -148,8 +147,8 @@ export class Handler {
         return {};
     }
 
-    @needsAuth
-    public async createVacation(ctx: Context, req: CreateVacationRequest): Promise<CreateVacationResponse> {
+    @rpcHandler @rpcNeedsAuth
+    public async createVacation(ctx: RpcContext<Auth>, req: CreateVacationRequest): Promise<CreateVacationResponse> {
 
         const rightNow = moment.utc();
 
@@ -166,7 +165,7 @@ export class Handler {
             isArchived: false
         };
 
-        const newFullUser = await this.dbModifyFullUser(ctx, fullUser => {
+        const newFullUser = await this.dbModifyFullUser(ctx.getAuth().userId, fullUser => {
 
             const user = fullUser.user;
 
@@ -183,8 +182,8 @@ export class Handler {
         };
     }
 
-    @needsAuth
-    public async updateVacation(ctx: Context, req: UpdateVacationRequest): Promise<UpdateVacationResponse> {
+    @rpcHandler @rpcNeedsAuth
+    public async updateVacation(ctx: RpcContext<Auth>, req: UpdateVacationRequest): Promise<UpdateVacationResponse> {
 
         const rightNow = moment.utc();
 
@@ -196,7 +195,7 @@ export class Handler {
             throw new ServiceError("Vacation end date is before start date");
         }
 
-        const newFullUser = await this.dbModifyFullUser(ctx, fullUser => {
+        const newFullUser = await this.dbModifyFullUser(ctx.getAuth().userId, fullUser => {
 
             const user = fullUser.user;
             const vacation = Handler.getVacationById(user, req.vacationId);
@@ -224,10 +223,10 @@ export class Handler {
         };
     }
 
-    @needsAuth
-    public async archiveVacation(ctx: Context, req: ArchiveVacationRequest): Promise<ArchiveVacationResponse> {
+    @rpcHandler @rpcNeedsAuth
+    public async archiveVacation(ctx: RpcContext<Auth>, req: ArchiveVacationRequest): Promise<ArchiveVacationResponse> {
 
-        const newFullUser = await this.dbModifyFullUser(ctx, fullUser => {
+        const newFullUser = await this.dbModifyFullUser(ctx.getAuth().userId, fullUser => {
 
             const user = fullUser.user;
             const vacation = Handler.getVacationById(user, req.vacationId);
@@ -244,20 +243,20 @@ export class Handler {
 
     // Plans
 
-    @needsAuth
-    public async getLatestPlan(ctx: Context, _req: GetLatestPlanRequest): Promise<GetLatestPlanResponse> {
+    @rpcHandler @rpcNeedsAuth
+    public async getLatestPlan(ctx: RpcContext<Auth>, _req: GetLatestPlanRequest): Promise<GetLatestPlanResponse> {
 
-        const plan = await this.dbGetLatestPlan(this.conn, ctx.userId);
+        const plan = await this.dbGetLatestPlan(this.conn, ctx.getAuth().userId);
 
         return {
             plan: plan
         };
     }
 
-    @needsAuth
-    public async updatePlan(ctx: Context, req: UpdatePlanRequest): Promise<UpdatePlanResponse> {
+    @rpcHandler @rpcNeedsAuth
+    public async updatePlan(ctx: RpcContext<Auth>, req: UpdatePlanRequest): Promise<UpdatePlanResponse> {
 
-        const newFullUser = await this.dbModifyFullUser(ctx, fullUser => {
+        const newFullUser = await this.dbModifyFullUser(ctx.getAuth().userId, fullUser => {
             const plan = fullUser.plan;
 
             if (req.isSuspended !== undefined) {
@@ -279,8 +278,8 @@ export class Handler {
         };
     }
 
-    @needsAuth
-    public async createGoal(ctx: Context, req: CreateGoalRequest): Promise<CreateGoalResponse> {
+    @rpcHandler @rpcNeedsAuth
+    public async createGoal(ctx: RpcContext<Auth>, req: CreateGoalRequest): Promise<CreateGoalResponse> {
 
         const rightNow = moment.utc();
 
@@ -307,7 +306,7 @@ export class Handler {
             isArchived: false
         };
 
-        const newFullUser = await this.dbModifyFullUser(ctx, fullUser => {
+        const newFullUser = await this.dbModifyFullUser(ctx.getAuth().userId, fullUser => {
             const plan = fullUser.plan;
 
             plan.idSerialHack++;
@@ -336,8 +335,8 @@ export class Handler {
         };
     }
 
-    @needsAuth
-    public async moveGoal(ctx: Context, req: MoveGoalRequest): Promise<MoveGoalResponse> {
+    @rpcHandler @rpcNeedsAuth
+    public async moveGoal(ctx: RpcContext<Auth>, req: MoveGoalRequest): Promise<MoveGoalResponse> {
 
         const rightNow = moment.utc();
 
@@ -347,7 +346,7 @@ export class Handler {
             throw new ServiceError(`Cannot both move to toplevel and a child under ${req.parentGoalId}`);
         }
 
-        const newFullUser = await this.dbModifyFullUser(ctx, fullUser => {
+        const newFullUser = await this.dbModifyFullUser(ctx.getAuth().userId, fullUser => {
             const plan = fullUser.plan;
             const goal = Handler.getGoalById(plan, req.goalId, true);
 
@@ -511,12 +510,12 @@ export class Handler {
         };
     }
 
-    @needsAuth
-    public async updateGoal(ctx: Context, req: UpdateGoalRequest): Promise<UpdateGoalResponse> {
+    @rpcHandler @rpcNeedsAuth
+    public async updateGoal(ctx: RpcContext<Auth>, req: UpdateGoalRequest): Promise<UpdateGoalResponse> {
 
         const rightNow = moment.utc();
 
-        const newFullUser = await this.dbModifyFullUser(ctx, fullUser => {
+        const newFullUser = await this.dbModifyFullUser(ctx.getAuth().userId, fullUser => {
             const goal = Handler.getGoalById(fullUser.plan, req.goalId, true);
 
             if (goal.isSystemGoal) {
@@ -551,10 +550,10 @@ export class Handler {
         };
     }
 
-    @needsAuth
-    public async markGoalAsDone(ctx: Context, req: MarkGoalAsDoneRequest): Promise<MarkGoalAsDoneResponse> {
+    @rpcHandler @rpcNeedsAuth
+    public async markGoalAsDone(ctx: RpcContext<Auth>, req: MarkGoalAsDoneRequest): Promise<MarkGoalAsDoneResponse> {
 
-        const newFullUser = await this.dbModifyFullUser(ctx, fullUser => {
+        const newFullUser = await this.dbModifyFullUser(ctx.getAuth().userId, fullUser => {
             const plan = fullUser.plan;
             const goal = Handler.getGoalById(plan, req.goalId);
             const parentGoal = goal.parentGoalId ? Handler.getGoalById(plan, goal.parentGoalId) : null;
@@ -582,10 +581,10 @@ export class Handler {
         };
     }
 
-    @needsAuth
-    public async archiveGoal(ctx: Context, req: ArchiveGoalRequest): Promise<ArchiveGoalResponse> {
+    @rpcHandler @rpcNeedsAuth
+    public async archiveGoal(ctx: RpcContext<Auth>, req: ArchiveGoalRequest): Promise<ArchiveGoalResponse> {
 
-        const newFullUser = await this.dbModifyFullUser(ctx, fullUser => {
+        const newFullUser = await this.dbModifyFullUser(ctx.getAuth().userId, fullUser => {
             const plan = fullUser.plan;
             const goal = Handler.getGoalById(plan, req.goalId, false, true);
             const parentGoal = goal.parentGoalId ? Handler.getGoalById(plan, goal.parentGoalId) : null;
@@ -614,8 +613,8 @@ export class Handler {
         };
     }
 
-    @needsAuth
-    public async createMetric(ctx: Context, req: CreateMetricRequest): Promise<CreateMetricResponse> {
+    @rpcHandler @rpcNeedsAuth
+    public async createMetric(ctx: RpcContext<Auth>, req: CreateMetricRequest): Promise<CreateMetricResponse> {
 
         const newMetric: Metric = {
             id: -1,
@@ -632,7 +631,7 @@ export class Handler {
             entries: []
         };
 
-        const newFullUser = await this.dbModifyFullUser(ctx, fullUser => {
+        const newFullUser = await this.dbModifyFullUser(ctx.getAuth().userId, fullUser => {
             const plan = fullUser.plan;
             const schedule = fullUser.schedule;
             const goal = req.goalId ? Handler.getGoalById(plan, req.goalId) : Handler.getGoalById(plan, plan.inboxGoalId);
@@ -665,14 +664,14 @@ export class Handler {
         };
     }
 
-    @needsAuth
-    public async moveMetric(ctx: Context, req: MoveMetricRequest): Promise<MoveMetricResponse> {
+    @rpcHandler @rpcNeedsAuth
+    public async moveMetric(ctx: RpcContext<Auth>, req: MoveMetricRequest): Promise<MoveMetricResponse> {
 
         if (req.goalId === undefined && req.position === undefined) {
             throw new ServiceError("You must specify at least one of goalId or position");
         }
 
-        const newFullUser = await this.dbModifyFullUser(ctx, fullUser => {
+        const newFullUser = await this.dbModifyFullUser(ctx.getAuth().userId, fullUser => {
             const plan = fullUser.plan;
             const metric = Handler.getMetricById(plan, req.metricId);
 
@@ -722,10 +721,10 @@ export class Handler {
         };
     }
 
-    @needsAuth
-    public async updateMetric(ctx: Context, req: UpdateMetricRequest): Promise<UpdateMetricResponse> {
+    @rpcHandler @rpcNeedsAuth
+    public async updateMetric(ctx: RpcContext<Auth>, req: UpdateMetricRequest): Promise<UpdateMetricResponse> {
 
-        const newFullUser = await this.dbModifyFullUser(ctx, fullUser => {
+        const newFullUser = await this.dbModifyFullUser(ctx.getAuth().userId, fullUser => {
             const plan = fullUser.plan;
             const metric = Handler.getMetricById(plan, req.metricId);
 
@@ -747,10 +746,10 @@ export class Handler {
         };
     }
 
-    @needsAuth
-    public async archiveMetric(ctx: Context, req: ArchiveMetricRequest): Promise<ArchiveMetricResponse> {
+    @rpcHandler @rpcNeedsAuth
+    public async archiveMetric(ctx: RpcContext<Auth>, req: ArchiveMetricRequest): Promise<ArchiveMetricResponse> {
 
-        const newFullUser = await this.dbModifyFullUser(ctx, fullUser => {
+        const newFullUser = await this.dbModifyFullUser(ctx.getAuth().userId, fullUser => {
             const plan = fullUser.plan;
             const metric = Handler.getMetricById(plan, req.metricId);
 
@@ -767,8 +766,8 @@ export class Handler {
         };
     }
 
-    @needsAuth
-    public async createTask(ctx: Context, req: CreateTaskRequest): Promise<CreateTaskResponse> {
+    @rpcHandler @rpcNeedsAuth
+    public async createTask(ctx: RpcContext<Auth>, req: CreateTaskRequest): Promise<CreateTaskResponse> {
 
         const rightNow = moment.utc();
 
@@ -840,7 +839,7 @@ export class Handler {
             }]
         };
 
-        const newFullUser = await this.dbModifyFullUser(ctx, fullUser => {
+        const newFullUser = await this.dbModifyFullUser(ctx.getAuth().userId, fullUser => {
             const plan = fullUser.plan;
             const schedule = fullUser.schedule;
             const goal = req.goalId ? Handler.getGoalById(plan, req.goalId) : Handler.getGoalById(plan, plan.inboxGoalId);
@@ -878,14 +877,14 @@ export class Handler {
         };
     }
 
-    @needsAuth
-    public async moveTask(ctx: Context, req: MoveTaskRequest): Promise<MoveTaskResponse> {
+    @rpcHandler @rpcNeedsAuth
+    public async moveTask(ctx: RpcContext<Auth>, req: MoveTaskRequest): Promise<MoveTaskResponse> {
 
         if (req.goalId === undefined && req.position === undefined) {
             throw new ServiceError("You must specify at least one of goalId or position");
         }
 
-        const newFullUser = await this.dbModifyFullUser(ctx, fullUser => {
+        const newFullUser = await this.dbModifyFullUser(ctx.getAuth().userId, fullUser => {
             const plan = fullUser.plan;
             const task = Handler.getTaskById(plan, req.taskId);
 
@@ -935,8 +934,8 @@ export class Handler {
         };
     }
 
-    @needsAuth
-    public async updateTask(ctx: Context, req: UpdateTaskRequest): Promise<UpdateTaskResponse> {
+    @rpcHandler @rpcNeedsAuth
+    public async updateTask(ctx: RpcContext<Auth>, req: UpdateTaskRequest): Promise<UpdateTaskResponse> {
 
         const rightNow = moment.utc();
 
@@ -952,7 +951,7 @@ export class Handler {
             throw new ServiceError(`Cannot specify both a new repeat schedule and try to clear it as well`);
         }
 
-        const newFullUser = await this.dbModifyFullUser(ctx, fullUser => {
+        const newFullUser = await this.dbModifyFullUser(ctx.getAuth().userId, fullUser => {
             const plan = fullUser.plan;
             const schedule = fullUser.schedule;
             const task = Handler.getTaskById(plan, req.taskId);
@@ -1039,10 +1038,10 @@ export class Handler {
         };
     }
 
-    @needsAuth
-    public async archiveTask(ctx: Context, req: ArchiveTaskRequest): Promise<ArchiveTaskResponse> {
+    @rpcHandler @rpcNeedsAuth
+    public async archiveTask(ctx: RpcContext<Auth>, req: ArchiveTaskRequest): Promise<ArchiveTaskResponse> {
 
-        const newFullUser = await this.dbModifyFullUser(ctx, fullUser => {
+        const newFullUser = await this.dbModifyFullUser(ctx.getAuth().userId, fullUser => {
             const plan = fullUser.plan;
             const task = Handler.getTaskById(plan, req.taskId);
             const goal = Handler.getGoalById(plan, task.goalId, true);
@@ -1062,8 +1061,8 @@ export class Handler {
         };
     }
 
-    @needsAuth
-    public async createSubTask(ctx: Context, req: CreateSubTaskRequest): Promise<CreateSubTaskResponse> {
+    @rpcHandler @rpcNeedsAuth
+    public async createSubTask(ctx: RpcContext<Auth>, req: CreateSubTaskRequest): Promise<CreateSubTaskResponse> {
 
         const newSubTask: SubTask = {
             id: -1,
@@ -1076,7 +1075,7 @@ export class Handler {
             isArchived: false
         };
 
-        const newFullUser = await this.dbModifyFullUser(ctx, fullUser => {
+        const newFullUser = await this.dbModifyFullUser(ctx.getAuth().userId, fullUser => {
             const plan = fullUser.plan;
             const schedule = fullUser.schedule;
 
@@ -1122,8 +1121,8 @@ export class Handler {
         };
     }
 
-    @needsAuth
-    public async moveSubTask(ctx: Context, req: MoveSubTaskRequest): Promise<MoveSubTaskResponse> {
+    @rpcHandler @rpcNeedsAuth
+    public async moveSubTask(ctx: RpcContext<Auth>, req: MoveSubTaskRequest): Promise<MoveSubTaskResponse> {
 
         if (!req.moveToTopLevel && req.parentSubTaskId === undefined && req.position === undefined) {
             throw new ServiceError("You must specify at least one of toplevel, parentSubTaskId or position");
@@ -1131,7 +1130,7 @@ export class Handler {
             throw new ServiceError(`Cannot both move to toplevel and a child under ${req.parentSubTaskId}`);
         }
 
-        const newFullUser = await this.dbModifyFullUser(ctx, fullUser => {
+        const newFullUser = await this.dbModifyFullUser(ctx.getAuth().userId, fullUser => {
             const plan = fullUser.plan;
             const subTask = Handler.getSubTaskById(plan, req.subTaskId);
             const task = Handler.getTaskById(plan, subTask.taskId);
@@ -1288,10 +1287,10 @@ export class Handler {
         };
     }
 
-    @needsAuth
-    public async updateSubTask(ctx: Context, req: UpdateSubTaskRequest): Promise<UpdateSubTaskResponse> {
+    @rpcHandler @rpcNeedsAuth
+    public async updateSubTask(ctx: RpcContext<Auth>, req: UpdateSubTaskRequest): Promise<UpdateSubTaskResponse> {
 
-        const newFullUser = await this.dbModifyFullUser(ctx, fullUser => {
+        const newFullUser = await this.dbModifyFullUser(ctx.getAuth().userId, fullUser => {
             const plan = fullUser.plan;
             const subTask = Handler.getSubTaskById(plan, req.subTaskId);
             const task = Handler.getTaskById(plan, subTask.taskId);
@@ -1311,10 +1310,10 @@ export class Handler {
         };
     }
 
-    @needsAuth
-    public async archiveSubTask(ctx: Context, req: ArchiveSubTaskRequest): Promise<ArchiveSubTaskResponse> {
+    @rpcHandler @rpcNeedsAuth
+    public async archiveSubTask(ctx: RpcContext<Auth>, req: ArchiveSubTaskRequest): Promise<ArchiveSubTaskResponse> {
 
-        const newFullUser = await this.dbModifyFullUser(ctx, fullUser => {
+        const newFullUser = await this.dbModifyFullUser(ctx.getAuth().userId, fullUser => {
             const plan = fullUser.plan;
             const schedule = fullUser.schedule;
 
@@ -1348,9 +1347,9 @@ export class Handler {
 
     // Schedules
 
-    @needsAuth
-    public async getLatestSchedule(ctx: Context, _req: GetLatestScheduleRequest): Promise<GetLatestScheduleResponse> {
-        const fullUser = await this.dbGetFullUser(ctx);
+    @rpcHandler @rpcNeedsAuth
+    public async getLatestSchedule(ctx: RpcContext<Auth>, _req: GetLatestScheduleRequest): Promise<GetLatestScheduleResponse> {
+        const fullUser = await this.dbGetFullUser(ctx.getAuth().userId);
 
         return {
             plan: fullUser.plan,
@@ -1358,8 +1357,8 @@ export class Handler {
         };
     }
 
-    @needsAuth
-    public async incrementMetric(ctx: Context, req: IncrementMetricRequest): Promise<IncrementMetricResponse> {
+    @rpcHandler @rpcNeedsAuth
+    public async incrementMetric(ctx: RpcContext<Auth>, req: IncrementMetricRequest): Promise<IncrementMetricResponse> {
 
         const rightNow = moment.utc();
 
@@ -1370,11 +1369,11 @@ export class Handler {
             value: 1
         };
 
-        return await this.handleMetric(ctx, req.metricId, newCollectedMetricEntry, MetricType.COUNTER);
+        return await this.handleMetric(ctx.getAuth().userId, req.metricId, newCollectedMetricEntry, MetricType.COUNTER);
     }
 
-    @needsAuth
-    public async recordForMetric(ctx: Context, req: RecordForMetricRequest): Promise<RecordForMetricResponse> {
+    @rpcHandler @rpcNeedsAuth
+    public async recordForMetric(ctx: RpcContext<Auth>, req: RecordForMetricRequest): Promise<RecordForMetricResponse> {
 
         const rightNow = moment.utc();
 
@@ -1385,11 +1384,11 @@ export class Handler {
             value: req.value
         };
 
-        return await this.handleMetric(ctx, req.metricId, newCollectedMetricEntry, MetricType.GAUGE);
+        return await this.handleMetric(ctx.getAuth().userId, req.metricId, newCollectedMetricEntry, MetricType.GAUGE);
     }
 
-    private async handleMetric(ctx: Context, metricId: MetricId, entry: CollectedMetricEntry, allowedType: MetricType): Promise<RecordForMetricResponse | IncrementMetricResponse> {
-        const newFullUser = await this.dbModifyFullUser(ctx, fullUser => {
+    private async handleMetric(userId: number, metricId: MetricId, entry: CollectedMetricEntry, allowedType: MetricType): Promise<RecordForMetricResponse | IncrementMetricResponse> {
+        const newFullUser = await this.dbModifyFullUser(userId, fullUser => {
             const plan = fullUser.plan;
             const schedule = fullUser.schedule;
 
@@ -1422,10 +1421,10 @@ export class Handler {
         };
     }
 
-    @needsAuth
-    public async markTaskAsDone(ctx: Context, req: MarkTaskAsDoneRequest): Promise<MarkTaskAsDoneResponse> {
+    @rpcHandler @rpcNeedsAuth
+    public async markTaskAsDone(ctx: RpcContext<Auth>, req: MarkTaskAsDoneRequest): Promise<MarkTaskAsDoneResponse> {
 
-        const newFullUser = await this.dbModifyFullUser(ctx, fullUser => {
+        const newFullUser = await this.dbModifyFullUser(ctx.getAuth().userId, fullUser => {
 
             const plan = fullUser.plan;
             const schedule = fullUser.schedule;
@@ -1452,10 +1451,10 @@ export class Handler {
         };
     }
 
-    @needsAuth
-    public async markSubTaskAsDone(ctx: Context, req: MarkSubTaskAsDoneRequest): Promise<MarkSubTaskAsDoneResponse> {
+    @rpcHandler @rpcNeedsAuth
+    public async markSubTaskAsDone(ctx: RpcContext<Auth>, req: MarkSubTaskAsDoneRequest): Promise<MarkSubTaskAsDoneResponse> {
 
-        const newFullUser = await this.dbModifyFullUser(ctx, fullUser => {
+        const newFullUser = await this.dbModifyFullUser(ctx.getAuth().userId, fullUser => {
 
             const plan = fullUser.plan;
             const schedule = fullUser.schedule;
@@ -1487,8 +1486,8 @@ export class Handler {
         };
     }
 
-    @needsAuth
-    public async incrementCounterTask(ctx: Context, req: IncrementCounterTaskRequest): Promise<IncrementCounterTaskResponse> {
+    @rpcHandler @rpcNeedsAuth
+    public async incrementCounterTask(ctx: RpcContext<Auth>, req: IncrementCounterTaskRequest): Promise<IncrementCounterTaskResponse> {
 
         if (req.increment !== undefined) {
             if (req.increment < 1) {
@@ -1499,7 +1498,7 @@ export class Handler {
             }
         }
 
-        const newFullUser = await this.dbModifyFullUser(ctx, fullUser => {
+        const newFullUser = await this.dbModifyFullUser(ctx.getAuth().userId, fullUser => {
 
             const plan = fullUser.plan;
             const schedule = fullUser.schedule;
@@ -1529,14 +1528,14 @@ export class Handler {
         };
     }
 
-    @needsAuth
-    public async setGaugeTask(ctx: Context, req: SetGaugeTaskRequest): Promise<SetGaugeTaskResponse> {
+    @rpcHandler @rpcNeedsAuth
+    public async setGaugeTask(ctx: RpcContext<Auth>, req: SetGaugeTaskRequest): Promise<SetGaugeTaskResponse> {
 
         if (req.level < 0) {
             throw new ServiceError(`Cannot set negative level ${req.level} for task entry ${req.scheduledTaskEntryId}`);
         }
 
-        const newFullUser = await this.dbModifyFullUser(ctx, fullUser => {
+        const newFullUser = await this.dbModifyFullUser(ctx.getAuth().userId, fullUser => {
 
             const plan = fullUser.plan;
             const schedule = fullUser.schedule;
@@ -1565,10 +1564,10 @@ export class Handler {
         };
     }
 
-    @needsAuth
-    public async updateScheduledTaskEntry(ctx: Context, req: UpdateScheduledTaskEntryRequest): Promise<UpdateScheduledTaskEntryResponse> {
+    @rpcHandler @rpcNeedsAuth
+    public async updateScheduledTaskEntry(ctx: RpcContext<Auth>, req: UpdateScheduledTaskEntryRequest): Promise<UpdateScheduledTaskEntryResponse> {
 
-        const newFullUser = await this.dbModifyFullUser(ctx, fullUser => {
+        const newFullUser = await this.dbModifyFullUser(ctx.getAuth().userId, fullUser => {
             const schedule = fullUser.schedule;
 
             const scheduledTaskEntry = Handler.getScheduledTaskEntryById(schedule, req.scheduledTaskEntryId);
@@ -1618,12 +1617,7 @@ export class Handler {
 
         for (const user of users) {
 
-            const ctx = {
-                auth: { token: "A FAKE TOKEN WHICH IS FAKE" },
-                userId: user.id
-            };
-
-            await this.dbModifyFullUser(ctx, fullUser => {
+            await this.dbModifyFullUser(user.id, fullUser => {
                 const plan = fullUser.plan;
 
                 let modifiedSomething = false;
@@ -1778,9 +1772,9 @@ export class Handler {
 
     // DB access & helpers
 
-    private async dbGetFullUser(ctx: Context): Promise<FullUser> {
+    private async dbGetFullUser(userId: number): Promise<FullUser> {
         return await this.conn.transaction(async (trx: Transaction) => {
-            const user = await this.dbGetUserById(trx, ctx.userId);
+            const user = await this.dbGetUserById(trx, userId);
 
             if (user.isArchived) {
                 throw new ServiceError(`User id=${user.id} is archived`);
@@ -1797,9 +1791,9 @@ export class Handler {
         });
     }
 
-    private async dbModifyFullUser(ctx: Context, action: (fullUser: FullUser) => [WhatToSave, FullUser]): Promise<FullUser> {
+    private async dbModifyFullUser(userId: number, action: (fullUser: FullUser) => [WhatToSave, FullUser]): Promise<FullUser> {
         return await this.conn.transaction(async (trx: Transaction) => {
-            const user = await this.dbGetUserById(trx, ctx.userId);
+            const user = await this.dbGetUserById(trx, userId);
 
             if (user.isArchived) {
                 throw new ServiceError(`User id=${user.id} is archived`);
@@ -2848,34 +2842,6 @@ export class Handler {
         // Assume it's the last entry and we are up to date!
         return scheduledTask.entries[scheduledTask.entries.length - 1];
     }
-}
-
-type RequestHandler<Req, Res> = (ctx: Context, req: Req) => Promise<Res>;
-
-function needsAuth<Req, Res>(_target: Object, _propertyKey: string, descriptor: TypedPropertyDescriptor<RequestHandler<Req, Res>>): TypedPropertyDescriptor<RequestHandler<Req, Res>> {
-    const originalMethod = descriptor.value;
-
-    descriptor.value = async function (ctx: Context, req: Req) {
-
-        const userId = await new Promise<number>((resolve, reject) => {
-            jwt.verify(ctx.auth.token, Handler.AUTH_TOKEN_ENCRYPTION_KEY, (err, jwtDecoded) => {
-                if (err) {
-                    return reject(new ServiceError(`Invalid auth token`));
-                }
-
-                resolve((jwtDecoded as any).id as number);
-            });
-        });
-
-        const newCtx = {
-            auth: ctx.auth,
-            userId: userId
-        };
-
-        return await (originalMethod as any).call(this, newCtx, req);
-    };
-
-    return descriptor;
 }
 
 export interface Auth {
