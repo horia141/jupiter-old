@@ -48,7 +48,7 @@ import {
     Vacation,
     VacationId
 } from "../shared/entities";
-import {RpcContext, rpcHandler, rpcHandlerWithAuth} from "../shared/dsrpc";
+import {RpcContext, rpcHandler, rpcNeedsAuth} from "../shared/dsrpc";
 
 export class ServiceError extends Error {
 
@@ -124,7 +124,7 @@ export class Handler {
         };
     }
 
-    @rpcHandlerWithAuth
+    @rpcHandler @rpcNeedsAuth
     public async getUser(ctx: RpcContext<Auth>, _req: GetUserRequest): Promise<GetUserResponse> {
 
         const user = await this.dbGetUserById(this.conn, ctx.getAuth().userId);

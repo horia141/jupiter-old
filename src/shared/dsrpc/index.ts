@@ -9,17 +9,9 @@ export class RpcContext<Auth> {
     private readonly rightNow: moment.Moment;
     private auth: Auth | null;
 
-    private constructor(rightNow: moment.Moment, auth: Auth | null) {
+    public constructor(rightNow: moment.Moment, auth: Auth | null) {
         this.rightNow = rightNow;
         this.auth = auth;
-    }
-
-    public static buildWithNoAuth<Auth>(): RpcContext<Auth> {
-        return new RpcContext<Auth>(moment.utc(), null);
-    }
-
-    public static buildWithAuth<Auth>(auth: Auth): RpcContext<Auth> {
-        return new RpcContext<Auth>(moment.utc(), auth);
     }
 
     public getRightNow(): moment.Moment {
@@ -132,9 +124,6 @@ export class ServiceClient {
             this.authToken = responseHeaders[ServiceServer.AUTH_TOKEN_HEADER];
         }
 
-        console.log(responseData);
-        console.log(responseHeaders);
-
         return responseData;
     }
 
@@ -146,9 +135,13 @@ export class ServiceClient {
 
 type ServiceHandlerMethod<Auth, Req extends RpcReq, Res extends RpcRes> = (ctx: RpcContext<Auth>, req: Req) => Promise<Res>;
 
-export interface ServiceHandlerMap {
-    normal: Map<string, ServiceHandlerMethod<any, any, any>>;
-    withAuth: Map<string, ServiceHandlerMethod<any, any, any>>;
+interface ServiceHandlerHandlerMethod<Auth, Req extends RpcReq, Res extends RpcRes> {
+    needsAuth: boolean;
+    handlerMethod: ServiceHandlerMethod<Auth, Req, Res>;
+}
+
+interface ServiceHandlerMap {
+    handlerMethods: Map<string, ServiceHandlerHandlerMethod<any, any, any>>;
 }
 
 export enum ServiceResponseErrors {
@@ -175,33 +168,42 @@ export function rpcHandler<Auth, Req extends RpcReq, Res extends RpcRes>(proto: 
 
     const originalMethod = descriptor.value;
 
-    if (!proto.hasOwnProperty("__serviceHandler")) {
-        (proto as any).__serviceHandler = {
-            normal: new Map<string, ServiceHandlerMethod<any, any, any>>(),
-            withAuth: new Map<string, ServiceHandlerMethod<any, any, any>>()
+    if (!proto.hasOwnProperty("__serviceHandlerMap")) {
+        (proto as any).__serviceHandlerMap = {
+            handlerMethods: new Map<string, ServiceHandlerHandlerMethod<any, any, any>>()
         } as ServiceHandlerMap;
     }
 
-    (proto as any).__serviceHandler.normal.set(propertyKey, originalMethod);
+    let needsAuth = false;
+    if ((proto as any).__serviceHandlerMap.handlerMethods.has(propertyKey)) {
+        needsAuth = (proto as any).__serviceHandlerMap.handlerMethods.get(propertyKey).needsAuth;
+    }
+
+    (proto as any).__serviceHandlerMap.handlerMethods.set(propertyKey, {
+        needsAuth: needsAuth,
+        handlerMethod: originalMethod
+    });
 
     return descriptor;
 }
 
-export function rpcHandlerWithAuth<Auth, Req extends RpcReq, Res extends RpcRes>(proto: Object, propertyKey: string, descriptor: TypedPropertyDescriptor<ServiceHandlerMethod<Auth, Req, Res>>): TypedPropertyDescriptor<ServiceHandlerMethod<Auth, Req, Res>> {
+export function rpcNeedsAuth<Auth, Req extends RpcReq, Res extends RpcRes>(proto: Object, propertyKey: string, descriptor: TypedPropertyDescriptor<ServiceHandlerMethod<Auth, Req, Res>>): TypedPropertyDescriptor<ServiceHandlerMethod<Auth, Req, Res>> {
     if (descriptor.value === undefined) {
         throw new Error(`Cannot have an absent rpc handler ${propertyKey} for ${proto.constructor.name}`);
     }
 
     const originalMethod = descriptor.value;
 
-    if (!proto.hasOwnProperty("__serviceHandler")) {
-        (proto as any).__serviceHandler = {
-            normal: new Map<string, ServiceHandlerMethod<any, any, any>>(),
-            withAuth: new Map<string, ServiceHandlerMethod<any, any, any>>()
+    if (!proto.hasOwnProperty("__serviceHandlerMap")) {
+        (proto as any).__serviceHandlerMap = {
+            handlerMethods: new Map<string, ServiceHandlerHandlerMethod<any, any, any>>()
         } as ServiceHandlerMap;
     }
 
-    (proto as any).__serviceHandler.withAuth.set(propertyKey, originalMethod);
+    (proto as any).__serviceHandlerMap.handlerMethods.set(propertyKey, {
+        needsAuth: true,
+        handlerMethod: originalMethod
+    });
 
     return descriptor;
 }
@@ -219,12 +221,11 @@ export class ServiceServer {
 
         const proto = Object.getPrototypeOf(this.handler);
 
-        if (proto.hasOwnProperty("__serviceHandler")) {
-            this.handlerMap = (proto as any).__serviceHandler as ServiceHandlerMap;
+        if (proto.hasOwnProperty("__serviceHandlerMap")) {
+            this.handlerMap = (proto as any).__serviceHandlerMap as ServiceHandlerMap;
         } else {
             this.handlerMap = {
-                normal: new Map<string, ServiceHandlerMethod<any, any, any>>(),
-                withAuth: new Map<string, ServiceHandlerMethod<any, any, any>>()
+                handlerMethods: new Map<string, ServiceHandlerHandlerMethod<any, any, any>>(),
             };
         }
     }
@@ -249,69 +250,7 @@ export class ServiceServer {
             });
         }
 
-        for (const [methodName, methodHandler] of this.handlerMap.normal.entries()) {
-
-            app.post(`/method/${methodName}`, decodeJson, async (req: express.Request, res: express.Response) => {
-                const requestData = req.body;
-
-                if (!this.validateRequestData(requestData)) {
-                    const response: ServiceResponse<any> = {
-                        code: ServiceResponseErrors.REQUEST_VALIDATION_ERROR,
-                        error: "Request validation"
-                    };
-
-                    res.json(response);
-                    res.end();
-                    return;
-                }
-
-                const ctx = RpcContext.buildWithNoAuth();
-
-                try {
-                    const responseData = await methodHandler.call(this.handler, ctx, requestData);
-                    const response: ServiceResponse<any> = {
-                        code: ServiceResponseErrors.OK,
-                        data: responseData
-                    };
-
-                    if (ctx.hasAuth()) {
-                        const jwtPayload = {
-                            auth: ctx.getAuth(),
-                            iat: ctx.getRightNow().unix(),
-                            exp: ctx.getRightNow().add(ServiceServer.AUTH_TOKEN_LIFE_HOURS, "hours").unix()
-                        };
-
-                        const token = await new Promise<string>((resolve, reject) => {
-
-                            jwt.sign(jwtPayload, ServiceServer.AUTH_TOKEN_ENCRYPTION_KEY, (err, jwtEncoded) => {
-                                if (err) {
-                                    return reject(new Error("Could not create auth token"));
-                                }
-
-                                resolve(jwtEncoded);
-                            });
-                        });
-
-                        res.setHeader(ServiceServer.AUTH_TOKEN_HEADER, token);
-                    }
-
-                    res.json(response);
-                    res.end();
-                    return;
-                } catch (e) {
-                    const response: ServiceResponse<any> = {
-                        code: ServiceResponseErrors.HANDLER_ERROR,
-                        error: e.toString()
-                    };
-
-                    res.json(response);
-                    res.end();
-                    return;
-                }
-            });
-        }
-
-        for (const [methodName, methodHandler] of this.handlerMap.withAuth.entries()) {
+        for (const [methodName, methodHandler] of this.handlerMap.handlerMethods.entries()) {
 
             app.post(`/method/${methodName}`, decodeJson, async (req: express.Request, res: express.Response) => {
 
@@ -327,10 +266,12 @@ export class ServiceServer {
                     res.end();
                     return;
                 }
+
+                let auth = null;
 
                 const authToken = req.header(ServiceServer.AUTH_TOKEN_HEADER);
 
-                if (authToken === undefined) {
+                if (methodHandler.needsAuth && authToken === undefined) {
                     const response: ServiceResponse<any> = {
                         code: ServiceResponseErrors.REQUEST_MISSING_AUTH_TOKEN,
                         error: "Missing auth token"
@@ -341,36 +282,39 @@ export class ServiceServer {
                     return;
                 }
 
-                let auth = null;
-                try {
-                    auth = await new Promise<any>((resolve, reject) => {
-                        jwt.verify(authToken, ServiceServer.AUTH_TOKEN_ENCRYPTION_KEY, {}, (err: VerifyErrors, jwtDecoded: object | string) => {
-                            if (err) {
-                                return reject(err);
-                            } else if (jwtDecoded instanceof String) {
-                                return reject(new Error("Invalid JWT token format"));
-                            } else if (!jwtDecoded.hasOwnProperty("auth")) {
-                                return reject(new Error("Invalid JWT token contents"));
-                            }
+                if (authToken !== undefined) {
+                    try {
+                        auth = await new Promise<any>((resolve, reject) => {
+                            jwt.verify(authToken, ServiceServer.AUTH_TOKEN_ENCRYPTION_KEY, {}, (err: VerifyErrors, jwtDecoded: object | string) => {
+                                if (err) {
+                                    return reject(err);
+                                } else if (jwtDecoded instanceof String) {
+                                    return reject(new Error("Invalid JWT token format"));
+                                } else if (!jwtDecoded.hasOwnProperty("auth")) {
+                                    return reject(new Error("Invalid JWT token contents"));
+                                }
 
-                            resolve((jwtDecoded as any).auth);
+                                resolve((jwtDecoded as any).auth);
+                            });
                         });
-                    });
-                } catch (e) {
-                    const response: ServiceResponse<any> = {
-                        code: ServiceResponseErrors.REQUEST_INVALID_AUTH_TOKEN,
-                        error: e.toString()
-                    };
+                    } catch (e) {
+                        if (methodHandler.needsAuth) {
+                            const response: ServiceResponse<any> = {
+                                code: ServiceResponseErrors.REQUEST_INVALID_AUTH_TOKEN,
+                                error: e.toString()
+                            };
 
-                    res.json(response);
-                    res.end();
-                    return;
+                            res.json(response);
+                            res.end();
+                            return;
+                        }
+                    }
                 }
 
-                const ctx = RpcContext.buildWithAuth(auth);
+                const ctx = new RpcContext(moment.utc(), auth);
 
                 try {
-                    const responseData = await methodHandler.call(this.handler, ctx, requestData);
+                    const responseData = await methodHandler.handlerMethod.call(this.handler, ctx, requestData);
 
                     const response: ServiceResponse<any> = {
                         code: ServiceResponseErrors.OK,
