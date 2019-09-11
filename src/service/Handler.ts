@@ -48,7 +48,7 @@ import {
     Vacation,
     VacationId
 } from "../shared/entities";
-import {RpcContext, rpcHandler} from "../shared/dsrpc";
+import {RpcContext, rpcHandler, rpcHandlerWithAuth} from "../shared/dsrpc";
 
 export class ServiceError extends Error {
 
@@ -94,7 +94,6 @@ export class Handler {
     ];
 
     private static readonly BCRYPT_ROUNDS = 10;
-    private static readonly AUTH_TOKEN_LIFE_HOURS = 4;
     public static readonly AUTH_TOKEN_ENCRYPTION_KEY = "Big Secret";
 
     public constructor(
@@ -108,9 +107,7 @@ export class Handler {
     // User
 
     @rpcHandler
-    public async getOrCreateUser(_ctx: RpcContext, req: GetOrCreateUserRequest): Promise<GetOrCreateUserResponse> {
-
-        const rightNow = moment.utc();
+    public async getOrCreateUser(ctx: RpcContext<Auth>, req: GetOrCreateUserRequest): Promise<GetOrCreateUserResponse> {
 
         if (!EmailValidator.validate(req.email)) {
             throw new ServiceError(`Supplied email ${req.email} is invalid`);
@@ -120,33 +117,17 @@ export class Handler {
 
         const user = await this.dbGetOrCreateUser(req.email, req.password);
 
-        const jwtPayload = {
-            id: user.id,
-            iat: rightNow.unix(),
-            exp: rightNow.add(Handler.AUTH_TOKEN_LIFE_HOURS, "hours").unix()
+        ctx.setAuth({ userId: user.id });
+
+        return {
+            user: user
         };
-
-        return new Promise<GetOrCreateUserResponse>((resolve, reject) => {
-
-            jwt.sign(jwtPayload, Handler.AUTH_TOKEN_ENCRYPTION_KEY, (err, jwtEncoded) => {
-                if (err) {
-                    return reject(new ServiceError(`Crypto error ${err.message}`));
-                }
-
-                resolve({
-                    auth: {
-                        token: jwtEncoded
-                    },
-                    user: user
-                });
-            });
-        });
     }
 
-    @needsAuth
-    public async getUser(ctx: Context, _req: GetUserRequest): Promise<GetUserResponse> {
+    @rpcHandlerWithAuth
+    public async getUser(ctx: RpcContext<Auth>, _req: GetUserRequest): Promise<GetUserResponse> {
 
-        const user = await this.dbGetUserById(this.conn, ctx.userId);
+        const user = await this.dbGetUserById(this.conn, ctx.getAuth().userId);
 
         return {
             user: user
@@ -2897,6 +2878,10 @@ function needsAuth<Req, Res>(_target: Object, _propertyKey: string, descriptor: 
     return descriptor;
 }
 
+export interface Auth {
+    userId: number;
+}
+
 export interface Context {
     auth: AuthInfo;
     userId: number;
@@ -2912,7 +2897,6 @@ export interface GetOrCreateUserRequest {
 }
 
 export interface GetOrCreateUserResponse {
-    auth: AuthInfo;
     user: User;
 }
 

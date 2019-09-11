@@ -1,9 +1,14 @@
 import { ServiceClient } from "../shared/dsrpc";
 
-const client = new ServiceClient("http://localhost:3000/api");
+const client = ServiceClient.build("http://localhost:3000/api");
 
-client.do("getOrCreateUser", { email: "horia@foo.com", password: "bar" }).then(r => {
-    console.log(r);
-}).catch(e => {
-    console.log(e);
-});
+async function main() {
+    //const user = await client.do("getOrCreateUser", { email: "horia@foo.com", password: "bar" });
+    //console.log(user);
+
+    const user2 = await client.do("getUser", {});
+    console.log(user2);
+}
+
+
+main();
