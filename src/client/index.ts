@@ -1033,7 +1033,7 @@ function printPlan(plan: Plan): string {
     res.push(`id=${plan.id} ${plan.isSuspended ? "s" : ""}`);
 
     for (const goalId of plan.goalsOrder) {
-        const goal = plan.goalsById.get(goalId) as Goal;
+        const goal = plan.goals.find(g => g.id === goalId) as Goal;
         res.push(printGoal(goal));
     }
 
@@ -1051,7 +1051,7 @@ function printGoal(goal: Goal, indent: number = 0): string {
         res.push(`${indentStr}  subgoals:`);
 
         for (const subGoalId of goal.subgoalsOrder) {
-            const subGoal = goal.subgoalsById.get(subGoalId) as Goal;
+            const subGoal = goal.subgoals.find(sg => sg.id === subGoalId) as Goal;
             res.push(printGoal(subGoal, indent + 2));
         }
     }
@@ -1060,7 +1060,7 @@ function printGoal(goal: Goal, indent: number = 0): string {
         res.push(`${indentStr}  metrics:`);
 
         for (const metricId of goal.metricsOrder) {
-            const metric = goal.metricsById.get(metricId) as Metric;
+            const metric = goal.metrics.find(m => m.id === metricId) as Metric;
             res.push(`${indentStr}    [${metric.id}] ${metric.type === MetricType.GAUGE ? 'g' : 'c'} ${metric.title}`);
         }
     }
@@ -1069,7 +1069,7 @@ function printGoal(goal: Goal, indent: number = 0): string {
         res.push(`${indentStr}  tasks:`);
 
         for (const taskId of goal.tasksOrder) {
-            const task = goal.tasksById.get(taskId) as Task;
+            const task = goal.tasks.find(t => t.id === taskId) as Task;
             res.push(printTask(task, indent));
 
         }
@@ -1093,7 +1093,7 @@ function printTask(task: Task, indent: number): string {
                 res.push(`${indentStr}      subtasks:`);
 
                 for (const subTaskId of substasksPolicy.subTasksOrder) {
-                    const subTask = substasksPolicy.subTasksById.get(subTaskId) as SubTask;
+                    const subTask = substasksPolicy.subTasks.find(st => st.id === subTaskId) as SubTask;
                     res.push(printSubTask(subTask, indent + 8));
                 }
             }
@@ -1116,7 +1116,7 @@ function printSubTask(subTask: SubTask, indent: number): string {
 
     if (subTask.subTasksOrder.length > 0) {
         for (const subSubTaskId of subTask.subTasksOrder) {
-            const subSubTask = subTask.subTasksById.get(subSubTaskId) as SubTask;
+            const subSubTask = subTask.subTasks.find(st => st.id === subSubTaskId) as SubTask;
             res.push(printSubTask(subSubTask, indent + 2));
         }
     }
@@ -1153,7 +1153,7 @@ function printSchedule(schedule: Schedule, plan: Plan): string {
 function printCollectedMetric(collectedMetric: CollectedMetric, plan: Plan): string {
     const res = [];
 
-    const metric = plan.metricsById.get(collectedMetric.metricId);
+    const metric = plan.goals.map(g => g.metrics.find(m => m.id === collectedMetric.metricId)).find(m => m !== undefined);
     if (metric === undefined) {
         throw new Error(`Cannot find metric for ${collectedMetric.metricId}`);
     }
@@ -1170,7 +1170,7 @@ function printCollectedMetric(collectedMetric: CollectedMetric, plan: Plan): str
 function printScheduledTask(scheduledTask: ScheduledTask, plan: Plan): string {
     const res = [];
 
-    const task = plan.tasksById.get(scheduledTask.taskId);
+    const task = plan.goals.map(g => g.tasks.find(t => t.id === scheduledTask.taskId)).find(t => t !== undefined);
     if (task === undefined) {
         throw new Error(`Cannot find task for ${scheduledTask.taskId}`);
     }
