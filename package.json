@@ -8,9 +8,9 @@
         "infra:psql": "./scripts/infra-psql.sh",
         "migrate": "./scripts/migrate.sh",
         "run:server": "./scripts/run-server.sh",
+        "run:server:watch": "./scripts/run-server-watch.sh",
         "run:client": "./scripts/run-client.sh",
-        "serve": "./scripts/serve.sh",
-        "serve:watch": "./scripts/serve-watch.sh"
+        "run:client:watch": "./scripts/run-client-watch.sh"
     },
     "engines": {
         "node": ">=8",

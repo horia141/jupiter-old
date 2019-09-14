@@ -8,4 +8,4 @@ source scripts/setup-env.sh
 export TS_NODE_PROJECT=tsconfig.json
 export TS_NODE_FILES=true
 
-npx ts-node src/service/index.ts
+npx ts-node src/server/index.ts
