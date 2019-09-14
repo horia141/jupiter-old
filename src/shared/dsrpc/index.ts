@@ -127,6 +127,22 @@ export class ServiceClient {
         return responseData;
     }
 
+    public hasAuthToken(): boolean {
+        return this.authToken !== null;
+    }
+
+    public getAuthToken(): string {
+        if (this.authToken === null) {
+            throw new Error("Accessing auth token when there isn't one");
+        }
+
+        return this.authToken;
+    }
+
+    public clearAuthToken(): void {
+        this.authToken = null;
+    }
+
     private validateResponseData<Res extends RpcRes>(_res: Res) {
         // TODO(horia141): figure out response validation!
         return true;
