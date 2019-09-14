@@ -1,12 +1,10 @@
 import * as Vorpal from "vorpal";
 import {Args} from "vorpal";
-import * as knex from "knex";
 import * as moment from "moment";
 import * as os from "os";
 import * as path from "path";
 import * as fs from "fs-extra";
 
-import {AuthInfo, Context, CreateTaskRequest, Service, UpdateTaskRequest} from "./service/Service";
 import {
     CollectedMetric,
     CounterPolicy,
@@ -32,13 +30,81 @@ import {
     TaskReminderPolicy,
     TaskUrgency,
     User
-} from "./service/entities";
+} from "../shared/entities";
+import { ServiceClient } from "../shared/dsrpc";
+import {
+    GetOrCreateUserRequest,
+    ArchiveGoalRequest,
+    ArchiveGoalResponse,
+    ArchiveMetricRequest,
+    ArchiveMetricResponse,
+    ArchiveSubTaskRequest,
+    ArchiveSubTaskResponse,
+    ArchiveTaskRequest,
+    ArchiveTaskResponse,
+    ArchiveUserRequest,
+    ArchiveUserResponse,
+    ArchiveVacationRequest,
+    ArchiveVacationResponse,
+    CreateGoalRequest,
+    CreateGoalResponse,
+    CreateMetricRequest,
+    CreateMetricResponse,
+    CreateSubTaskRequest,
+    CreateSubTaskResponse,
+    CreateTaskRequest,
+    CreateTaskResponse,
+    CreateVacationRequest,
+    CreateVacationResponse,
+    GetLatestPlanRequest,
+    GetLatestPlanResponse,
+    GetLatestScheduleRequest,
+    GetLatestScheduleResponse,
+    GetOrCreateUserResponse,
+    GetUserRequest,
+    GetUserResponse,
+    IncrementCounterTaskRequest,
+    IncrementCounterTaskResponse,
+    IncrementMetricRequest,
+    IncrementMetricResponse,
+    MarkGoalAsDoneRequest,
+    MarkGoalAsDoneResponse,
+    MarkSubTaskAsDoneRequest,
+    MarkSubTaskAsDoneResponse,
+    MarkTaskAsDoneRequest,
+    MarkTaskAsDoneResponse,
+    MoveGoalRequest,
+    MoveGoalResponse,
+    MoveMetricRequest,
+    MoveMetricResponse,
+    MoveSubTaskRequest,
+    MoveSubTaskResponse,
+    MoveTaskRequest,
+    MoveTaskResponse,
+    RecordForMetricRequest,
+    RecordForMetricResponse,
+    SetGaugeTaskRequest,
+    SetGaugeTaskResponse,
+    UpdateGoalRequest,
+    UpdateGoalResponse,
+    UpdateMetricRequest,
+    UpdateMetricResponse, UpdatePlanRequest,
+    UpdatePlanResponse,
+    UpdateScheduledTaskEntryRequest,
+    UpdateScheduledTaskEntryResponse,
+    UpdateSubTaskRequest,
+    UpdateSubTaskResponse,
+    UpdateTaskRequest,
+    UpdateTaskResponse,
+    UpdateVacationRequest,
+    UpdateVacationResponse
+} from "../shared/dtos";
 
 const Command = require('vorpal/dist/command.js');
 
 declare module "vorpal" {
     interface Command {
-        actionWithAuth(handler: (vorpal: Vorpal, args: Args, ctx: Context) => Promise<void>): void;
+        actionWithAuth(handler: (vorpal: Vorpal, args: Args) => Promise<void>): void;
     }
 }
 
@@ -47,38 +113,20 @@ const HOME_CONF_PATH = ".jupiter";
 
 async function main() {
 
-    const conn = knex({
-        client: "pg",
-        connection: {
-            host: process.env.POSTGRES_HOST as string,
-            port: process.env.POSTGRES_PORT as string,
-            database: process.env.POSTGRES_DATABASE as string,
-            user: process.env.POSTGRES_USERNAME as string,
-            password: process.env.POSTGRES_PASSWORD as string
-        }
-    });
-
-    const service = new Service(conn);
-    await service.init();
-
     const vorpal = (Vorpal as any)();
 
-    Command.prototype.actionWithAuth = function (this: Vorpal.Command, handler: (vorpal: Vorpal, args: Args, ctx: Context) => Promise<void>) {
+    let userAuthToken: string | undefined = await getUserAuthInfoFromLocalStorage();
+    const client = ServiceClient.build("http://localhost:3000/api", userAuthToken);
+
+    Command.prototype.actionWithAuth = function (this: Vorpal.Command, handler: (vorpal: Vorpal, args: Args) => Promise<void>) {
         return this.action(async function (this: Vorpal, args: Args) {
-            if (userAuthInfo === null) {
+            if (!client.hasAuthToken()) {
                 throw new Error(`Please register/login`);
             }
 
-            const ctx: Context = {
-                auth: userAuthInfo,
-                userId: -1 // UGLY HACK
-            };
-
-            await handler(vorpal, args, ctx);
+            await handler(vorpal, args);
         });
     };
-
-    let userAuthInfo: AuthInfo | null = await getUserAuthInfoFromLocalStorage();
 
     vorpal
         .command("user:register <email> <password>")
@@ -91,9 +139,8 @@ async function main() {
                 email: email,
                 password: password
             };
-            const res = await service.getOrCreateUser(req);
-            userAuthInfo = res.auth;
-            await saveUserAuthInfoToLocalStorage(userAuthInfo);
+            const res = await client.do<GetOrCreateUserRequest, GetOrCreateUserResponse>("getOrCreateUser", req);
+            await saveUserAuthInfoToLocalStorage(client.getAuthToken());
             vorpal.log(printUser(res.user));
         });
 
@@ -108,44 +155,43 @@ async function main() {
                 email: email,
                 password: password
             };
-            const res = await service.getOrCreateUser(req);
-            userAuthInfo = res.auth;
-            await saveUserAuthInfoToLocalStorage(userAuthInfo);
+            const res = await client.do<GetOrCreateUserRequest, GetOrCreateUserResponse>("getOrCreateUser", req);
+            await saveUserAuthInfoToLocalStorage(client.getAuthToken());
             vorpal.log(printUser(res.user));
         });
 
     vorpal
         .command("user:logout")
         .action(async function (this: Vorpal) {
-            userAuthInfo = null;
+            client.clearAuthToken();
             await clearUserAuthInfoFromLocalStorage();
         });
 
     vorpal
         .command("user:show")
-        .actionWithAuth(async (vorpal: Vorpal, _args: Args, ctx: Context) => {
+        .actionWithAuth(async (vorpal: Vorpal, _args: Args) => {
             const req = {};
-            const res = await service.getUser(ctx, req);
+            const res = await client.do<GetUserRequest, GetUserResponse>("getUser", req);
             vorpal.log(printUser(res.user));
         });
 
     vorpal
         .command("user:new-vacation <startTime> <endTime>")
-        .actionWithAuth(async (vorpal: Vorpal, args: Args, ctx: Context) => {
-             const startTime = moment.utc(args.startTime);
-             const endTime = moment.utc(args.endTime);
+        .actionWithAuth(async (vorpal: Vorpal, args: Args) => {
+            const startTime = moment.utc(args.startTime);
+            const endTime = moment.utc(args.endTime);
 
-             const req = {
-                 startTime: startTime,
-                 endTime: endTime
-             };
-             const res = await service.createVacation(ctx, req);
-             vorpal.log(printUser(res.user));
+            const req = {
+                startTime: startTime,
+                endTime: endTime
+            };
+            const res = await client.do<CreateVacationRequest, CreateVacationResponse>("createVacation", req);
+            vorpal.log(printUser(res.user));
         });
 
     vorpal
         .command("user:set-vacation-start-time <vacationId> <startTime>")
-        .actionWithAuth(async (vorpal: Vorpal, args: Args, ctx: Context) => {
+        .actionWithAuth(async (vorpal: Vorpal, args: Args) => {
             const vacationId = args.vacationId;
             const startTime = moment.utc(args.startTime);
 
@@ -153,13 +199,13 @@ async function main() {
                 vacationId: vacationId,
                 startTime: startTime
             };
-            const res = await service.updateVacation(ctx, req);
+            const res = await client.do<UpdateVacationRequest, UpdateVacationResponse>("updateVacation", req);
             vorpal.log(printUser(res.user));
         });
 
     vorpal
         .command("user:set-vacation-end-time <vacationId> <endTime>")
-        .actionWithAuth(async (_vorpal: Vorpal, args: Args, ctx: Context) => {
+        .actionWithAuth(async (_vorpal: Vorpal, args: Args) => {
             const vacationId = args.vacationId;
             const endTime = moment.utc(args.endTime);
 
@@ -167,30 +213,31 @@ async function main() {
                 vacationId: vacationId,
                 endTime: endTime
             };
-            const res = await service.updateVacation(ctx, req);
+            const res = await client.do<UpdateVacationRequest, UpdateVacationResponse>("updateVacation", req);
             vorpal.log(printUser(res.user));
         });
 
     vorpal
         .command("user:archive-vacation <vacationId>")
-        .actionWithAuth(async (_vorpal: Vorpal, args: Args, ctx: Context) => {
+        .actionWithAuth(async (_vorpal: Vorpal, args: Args) => {
             const vacationId = args.vacationId;
 
             const req = {
                 vacationId: vacationId
             };
-            const res = await service.archiveVacation(ctx, req);
+            const res = await client.do<ArchiveVacationRequest, ArchiveVacationResponse>("archiveVacation", req);
             vorpal.log(printUser(res.user));
         });
 
     vorpal
         .command("user:quit")
-        .actionWithAuth(async (_vorpal: Vorpal, _args: Args, ctx: Context) => {
+        .actionWithAuth(async (_vorpal: Vorpal, _args: Args) => {
             const req = {};
             try {
-                await service.archiveUser(ctx, req);
+                await client.do<ArchiveUserRequest, ArchiveUserResponse>("archiveUser", req);
             } finally {
-                userAuthInfo = null;
+                client.clearAuthToken();
+                await clearUserAuthInfoFromLocalStorage();
             }
             vorpal.log("User removed");
         });
@@ -198,31 +245,31 @@ async function main() {
     vorpal
         .command("plan:show")
         .description("Displays the current plan")
-        .actionWithAuth(async (vorpal: Vorpal, _args: Args, ctx: Context) => {
+        .actionWithAuth(async (vorpal: Vorpal, _args: Args) => {
             const req = {};
-            const res = await service.getLatestPlan(ctx, req);
+            const res = await client.do<GetLatestPlanRequest, GetLatestPlanResponse>("getLatestPlan", req);
             vorpal.log(printPlan(res.plan));
         });
 
     vorpal
         .command("plan:suspend")
         .description("Suspends the current plan")
-        .actionWithAuth(async (vorpal: Vorpal, _args: Args, ctx: Context) => {
+        .actionWithAuth(async (vorpal: Vorpal, _args: Args) => {
             const req = {
                 isSuspended: true
             };
-            const res = await service.updatePlan(ctx, req);
+            const res = await client.do<UpdatePlanRequest, UpdatePlanResponse>("updatePlan", req);
             vorpal.log(printPlan(res.plan));
         });
 
     vorpal
         .command("plan:unsuspend")
         .description("Suspends the current plan")
-        .actionWithAuth(async (vorpal: Vorpal, _args: Args, ctx: Context) => {
+        .actionWithAuth(async (vorpal: Vorpal, _args: Args) => {
             const req = {
                 isSuspended: false
             };
-            const res = await service.updatePlan(ctx, req);
+            const res = await client.do<UpdatePlanRequest, UpdatePlanResponse>("updatePlan", req);
             vorpal.log(printPlan(res.plan));
         });
 
@@ -233,7 +280,7 @@ async function main() {
         .option("-r, --range <range>", "The range of the goal in time", getGoalRange())
         .option("-c, --childOf <parentGoalId>", "The parent goal to nest this under")
         .types({ string: [ "d", "description", "r", "range", "c", "childOf" ]})
-        .actionWithAuth(async (vorpal: Vorpal, args: Args, ctx: Context) => {
+        .actionWithAuth(async (vorpal: Vorpal, args: Args) => {
             const title = args.title.join(" ");
             const description = args.options.description;
             const range = args.options.range !== undefined ? (args.options.range as GoalRange) : GoalRange.LIFETIME;
@@ -248,7 +295,7 @@ async function main() {
                 range: range,
                 parentGoalId: parentGoalId
             };
-            const res = await service.createGoal(ctx, req);
+            const res = await client.do<CreateGoalRequest, CreateGoalResponse>("createGoal", req);
             vorpal.log(printPlan(res.plan));
         });
 
@@ -259,7 +306,7 @@ async function main() {
         .option("-c, --childOf <parentGoalId>", "Moves goal to be a child of the specified goal")
         .option("-p, --position <position>", "Moves goal at position under its parent")
         .types({ string: [ "t", "toplevel", "c", "childOf", "p", "position" ]})
-        .actionWithAuth(async (vorpal: Vorpal, args: Args, ctx: Context) => {
+        .actionWithAuth(async (vorpal: Vorpal, args: Args) => {
             const goalId = Number.parseInt(args.goalId);
             const moveToToplevel = args.options.toplevel !== undefined;
             const parentGoalId = args.options.childOf !== undefined ? Number.parseInt(args.options.childOf) : undefined;
@@ -271,35 +318,35 @@ async function main() {
                 parentGoalId: parentGoalId,
                 position: position
             };
-            const res = await service.moveGoal(ctx, req);
+            const res = await client.do<MoveGoalRequest, MoveGoalResponse>("moveGoal", req);
             vorpal.log(printPlan(res.plan));
         });
 
     vorpal
         .command("plan:set-goal-title <goalId> <title...>")
         .description("Change the title of a given goal")
-        .actionWithAuth(async (vorpal: Vorpal, args: Args, ctx: Context) => {
+        .actionWithAuth(async (vorpal: Vorpal, args: Args) => {
             const goalId = Number.parseInt(args.goalId);
             const title = args.title.join(" ");
             const req = {
                 goalId: goalId,
                 title: title
             };
-            const res = await service.updateGoal(ctx, req);
+            const res = await client.do<UpdateGoalRequest, UpdateGoalResponse>("updateGoal", req);
             vorpal.log(printPlan(res.plan));
         });
 
     vorpal
         .command("plan:set-goal-description <goalId> <description...>")
         .description("Change the description of a given goal")
-        .actionWithAuth(async (vorpal: Vorpal, args: Args, ctx: Context) => {
+        .actionWithAuth(async (vorpal: Vorpal, args: Args) => {
             const goalId = Number.parseInt(args.goalId);
             const description = args.description.join(" ");
             const req = {
                 goalId: goalId,
                 description: description
             };
-            const res = await service.updateGoal(ctx, req);
+            const res = await client.do<UpdateGoalRequest, UpdateGoalResponse>("updateGoal", req);
             vorpal.log(printPlan(res.plan));
         });
 
@@ -307,7 +354,7 @@ async function main() {
         .command("plan:set-goal-range <goalId> <range>")
         .description("Change the range of the given goal")
         .autocomplete(getGoalRange())
-        .actionWithAuth(async (vorpal: Vorpal, args: Args, ctx: Context) => {
+        .actionWithAuth(async (vorpal: Vorpal, args: Args) => {
             const goalId = Number.parseInt(args.goalId);
             const range = args.range;
             if (getGoalRange().indexOf(range) === -1) {
@@ -317,59 +364,59 @@ async function main() {
                 goalId: goalId,
                 range: range
             };
-            const res = await service.updateGoal(ctx, req);
+            const res = await client.do<UpdateGoalRequest, UpdateGoalResponse>("updateGoal", req);
             vorpal.log(printPlan(res.plan));
         });
 
     vorpal
         .command("plan:suspend-goal <goalId>")
         .description("Suspend a goal")
-        .actionWithAuth(async (vorpal: Vorpal, args: Args, ctx: Context) => {
+        .actionWithAuth(async (vorpal: Vorpal, args: Args) => {
             const goalId = Number.parseInt(args.goalId);
 
             const req = {
                 goalId: goalId,
                 isSuspended: true
             };
-            const res = await service.updateGoal(ctx, req);
+            const res = await client.do<UpdateGoalRequest, UpdateGoalResponse>("updateGoal", req);
             vorpal.log(printPlan(res.plan));
         });
 
     vorpal
         .command("plan:unsuspend-goal <goalId>")
         .description("Suspend a repeating task")
-        .actionWithAuth(async (vorpal: Vorpal, args: Args, ctx: Context) => {
+        .actionWithAuth(async (vorpal: Vorpal, args: Args) => {
             const goalId = Number.parseInt(args.goalId);
 
             const req = {
                 goalId: goalId,
                 isSuspended: false
             };
-            const res = await service.updateGoal(ctx, req);
+            const res = await client.do<UpdateGoalRequest, UpdateGoalResponse>("updateGoal", req);
             vorpal.log(printPlan(res.plan));
         });
 
     vorpal
         .command("plan:mark-goal-as-done <goalId>")
         .description("Mark a goal as done")
-        .actionWithAuth(async (vorpal: Vorpal, args: Args, ctx: Context) => {
+        .actionWithAuth(async (vorpal: Vorpal, args: Args) => {
             const goalId = Number.parseInt(args.goalId);
             const req = {
                 goalId: goalId
             };
-            const res = await service.markGoalAsDone(ctx, req);
+            const res = await client.do<MarkGoalAsDoneRequest, MarkGoalAsDoneResponse>("markGoalAsDone", req);
             vorpal.log(printPlan(res.plan));
         });
 
     vorpal
         .command("plan:archive-goal <goalId>")
         .description("Archive a goal")
-        .actionWithAuth(async (vorpal: Vorpal, args: Args, ctx: Context) => {
+        .actionWithAuth(async (vorpal: Vorpal, args: Args) => {
             const goalId = Number.parseInt(args.goalId);
             const req = {
                 goalId: goalId
             };
-            const res = await service.archiveGoal(ctx, req);
+            const res = await client.do<ArchiveGoalRequest, ArchiveGoalResponse>("archiveGoal", req);
             vorpal.log(printPlan(res.plan));
         });
 
@@ -379,7 +426,7 @@ async function main() {
         .option("-g, --goal <goalId>", "The goal to add the metric to. Default to the inbox one")
         .option("-d, --description <desc>", "Add a description to the goal")
         .option("--counter", "Create a counter metric instead of a gauge one")
-        .actionWithAuth(async (vorpal: Vorpal, args: Args, ctx: Context) => {
+        .actionWithAuth(async (vorpal: Vorpal, args: Args) => {
             const goalId = args.options.goal !== undefined ? Number.parseInt(args.options.goal) : undefined;
             const title = args.title.join(" ");
             const description = args.options.description;
@@ -390,7 +437,7 @@ async function main() {
                 description: description,
                 isCounter: isCounter
             };
-            const res = await service.createMetric(ctx, req);
+            const res = await client.do<CreateMetricRequest, CreateMetricResponse>("createMetric", req);
             vorpal.log(printPlan(res.plan));
         });
 
@@ -400,7 +447,7 @@ async function main() {
         .option("-c, --childOf <goalId>", "Moves metric to be a child of the given goal")
         .option("-p, --position <position>", "Moves metric at position under the goal")
         .types({ string: [ "c", "childOf", "p", "position" ]})
-        .actionWithAuth(async (vorpal: Vorpal, args: Args, ctx: Context) => {
+        .actionWithAuth(async (vorpal: Vorpal, args: Args) => {
             const metricId = Number.parseInt(args.metricId);
             const goalId = args.options.childOf !== undefined ? Number.parseInt(args.options.childOf) : undefined;
             const position = args.options.position !== undefined ? Number.parseInt(args.options.position) : undefined;
@@ -410,48 +457,48 @@ async function main() {
                 goalId: goalId,
                 position: position
             };
-            const res = await service.moveMetric(ctx, req);
+            const res = await client.do<MoveMetricRequest, MoveMetricResponse>("moveMetric", req);
             vorpal.log(printPlan(res.plan));
         });
 
     vorpal
         .command("plan:set-metric-title <metricId> <title...>")
         .description("Change the title of a given metric")
-        .actionWithAuth(async (vorpal: Vorpal, args: Args, ctx: Context) => {
+        .actionWithAuth(async (vorpal: Vorpal, args: Args) => {
             const metricId = Number.parseInt(args.metricId);
             const title = args.title.join(" ");
             const req = {
                 metricId: metricId,
                 title: title
             };
-            const res = await service.updateMetric(ctx, req);
+            const res = await client.do<UpdateMetricRequest, UpdateMetricResponse>("updateMetric", req);
             vorpal.log(printPlan(res.plan));
         });
 
     vorpal
         .command("plan:set-metric-description <metricId> <description...>")
         .description("Change the title of a given metric")
-        .actionWithAuth(async (vorpal: Vorpal, args: Args, ctx: Context) => {
+        .actionWithAuth(async (vorpal: Vorpal, args: Args) => {
             const metricId = Number.parseInt(args.metricId);
             const description = args.description.join(" ");
             const req = {
                 metricId: metricId,
                 description: description
             };
-            const res = await service.updateMetric(ctx, req);
+            const res = await client.do<UpdateMetricRequest, UpdateMetricResponse>("updateMetric", req);
             vorpal.log(printPlan(res.plan));
         });
 
     vorpal
         .command("plan:archive-metric <metricId>")
         .description("Archive a given metric")
-        .actionWithAuth(async (vorpal: Vorpal, args: Args, ctx: Context) => {
+        .actionWithAuth(async (vorpal: Vorpal, args: Args) => {
             const metricId = Number.parseInt(args.metricId);
 
             const req = {
                 metricId: metricId
             };
-            const res = await service.archiveMetric(ctx, req);
+            const res = await client.do<ArchiveMetricRequest, ArchiveMetricResponse>("archiveMetric", req);
             vorpal.log(printPlan(res.plan));
         });
 
@@ -469,7 +516,7 @@ async function main() {
         .option("-s, --subtasks", "Creates a task with subtasks")
         .option("--counter <counterConfig>", "Create a task with a counter done policy")
         .option("--gauge <gaugeConfig>", "Create a task with a gauge done policy")
-        .actionWithAuth(async (vorpal: Vorpal, args: Args, ctx: Context) => {
+        .actionWithAuth(async (vorpal: Vorpal, args: Args) => {
             const goalId = args.options.goal !== undefined ? Number.parseInt(args.options.goal) : undefined;
             const title = args.title.join(" ");
             const description = args.options.description;
@@ -522,7 +569,7 @@ async function main() {
                 }
             };
 
-            const res = await service.createTask(ctx, req);
+            const res = await client.do<CreateTaskRequest, CreateTaskResponse>("createTask", req);
             vorpal.log(printPlan(res.plan));
         });
 
@@ -532,7 +579,7 @@ async function main() {
         .option("-c, --childOf <goalId>", "Moves task to be a child of the given goal")
         .option("-p, --position <position>", "Moves task at position under the goal")
         .types({ string: [ "c", "childOf", "p", "position" ]})
-        .actionWithAuth(async (vorpal: Vorpal, args: Args, ctx: Context) => {
+        .actionWithAuth(async (vorpal: Vorpal, args: Args) => {
             const taskId = Number.parseInt(args.taskId);
             const goalId = args.options.childOf !== undefined ? Number.parseInt(args.options.childOf) : undefined;
             const position = args.options.position !== undefined ? Number.parseInt(args.options.position) : undefined;
@@ -542,14 +589,15 @@ async function main() {
                 goalId: goalId,
                 position: position
             };
-            const res = await service.moveTask(ctx, req);
+
+            const res = await client.do<MoveTaskRequest, MoveTaskResponse>("moveTask", req);
             vorpal.log(printPlan(res.plan));
         });
 
     vorpal
         .command("plan:set-task-title <taskId> <title...>")
         .description("Change the title of a given task")
-        .actionWithAuth(async (vorpal: Vorpal, args: Args, ctx: Context) => {
+        .actionWithAuth(async (vorpal: Vorpal, args: Args) => {
             const taskId = Number.parseInt(args.taskId);
             const title = args.title.join(" ");
 
@@ -557,28 +605,29 @@ async function main() {
                 taskId: taskId,
                 title: title
             };
-            const res = await service.updateTask(ctx, req);
+
+            const res = await client.do<UpdateTaskRequest, UpdateTaskResponse>("updateTask", req);
             vorpal.log(printPlan(res.plan));
         });
 
     vorpal
         .command("plan:set-task-description <taskId> <description...>")
         .description("Change the description of a given task")
-        .actionWithAuth(async (vorpal: Vorpal, args: Args, ctx: Context) => {
+        .actionWithAuth(async (vorpal: Vorpal, args: Args) => {
             const taskId = Number.parseInt(args.taskId);
             const description = args.description.join(" ");
             const req = {
                 taskId: taskId,
                 description: description
             };
-            const res = await service.updateTask(ctx, req);
+            const res = await client.do<UpdateTaskRequest, UpdateTaskResponse>("updateTask", req);
             vorpal.log(printPlan(res.plan));
         });
 
     vorpal
         .command("plan:set-task-priority <taskId> <priority>")
         .description("Change the priority of a given task")
-        .actionWithAuth(async (vorpal: Vorpal, args: Args, ctx: Context) => {
+        .actionWithAuth(async (vorpal: Vorpal, args: Args) => {
             const taskId = Number.parseInt(args.taskId);
             const priority = args.priority as TaskPriority;
             if (getTaskPriority().indexOf(priority) === -1) {
@@ -589,14 +638,14 @@ async function main() {
                 taskId: taskId,
                 priority: priority
             };
-            const res = await service.updateTask(ctx, req);
+            const res = await client.do<UpdateTaskRequest, UpdateTaskResponse>("updateTask", req);
             vorpal.log(printPlan(res.plan));
         });
 
     vorpal
         .command("plan:set-task-urgency <taskId> <urgency>")
         .description("Change the urgency of a given task")
-        .actionWithAuth(async (vorpal: Vorpal, args: Args, ctx: Context) => {
+        .actionWithAuth(async (vorpal: Vorpal, args: Args) => {
             const taskId = Number.parseInt(args.taskId);
             const urgency = args.urgency as TaskUrgency;
             if (getTaskUrgency().indexOf(urgency) === -1) {
@@ -607,14 +656,14 @@ async function main() {
                 taskId: taskId,
                 urgency: urgency
             };
-            const res = await service.updateTask(ctx, req);
+            const res = await client.do<UpdateTaskRequest, UpdateTaskResponse>("updateTask", req);
             vorpal.log(printPlan(res.plan));
         });
 
     vorpal
         .command("plan:set-task-deadline <taskId> [deadline]")
         .description("Change the deadline of a given task")
-        .actionWithAuth(async (vorpal: Vorpal, args: Args, ctx: Context) => {
+        .actionWithAuth(async (vorpal: Vorpal, args: Args) => {
             const taskId = Number.parseInt(args.taskId);
             const deadline = args.deadline !== undefined ? moment.utc(args.deadline) : undefined;
             const clearDeadline = args.deadline === undefined;
@@ -624,14 +673,14 @@ async function main() {
                 deadline: deadline,
                 clearDeadline: clearDeadline
             };
-            const res = await service.updateTask(ctx, req);
+            const res = await client.do<UpdateTaskRequest, UpdateTaskResponse>("updateTask", req);
             vorpal.log(printPlan(res.plan));
         });
 
     vorpal
         .command("plan:set-task-schedule <taskId> [repeatSchedule]")
         .description("Change the repeat schedule for a task")
-        .actionWithAuth(async (vorpal: Vorpal, args: Args, ctx: Context) => {
+        .actionWithAuth(async (vorpal: Vorpal, args: Args) => {
             const taskId = Number.parseInt(args.taskId);
             const repeatSchedule = args.repeatSchedule;
             if (repeatSchedule !== undefined && getTaskRepeatSchedule().indexOf(repeatSchedule) === -1) {
@@ -644,14 +693,14 @@ async function main() {
                 repeatSchedule: repeatSchedule,
                 clearRepeatSchedule: clearRepeatSchedule
             };
-            const res = await service.updateTask(ctx, req);
+            const res = await client.do<UpdateTaskRequest, UpdateTaskResponse>("updateTask", req);
             vorpal.log(printPlan(res.plan));
         });
 
     vorpal
         .command("plan:set-task-reminder-policy <taskId> <reminderPolicy>")
         .description("Change the reminder policy for a task")
-        .actionWithAuth(async (vorpal: Vorpal, args: Args, ctx: Context) => {
+        .actionWithAuth(async (vorpal: Vorpal, args: Args) => {
             const taskId = Number.parseInt(args.taskId);
             const reminderPolicy = args.reminderPolicy;
             if (getTaskReminderPolicy().indexOf(reminderPolicy) === -1) {
@@ -662,48 +711,48 @@ async function main() {
                 taskId: taskId,
                 reminderPolicy: reminderPolicy
             };
-            const res = await service.updateTask(ctx, req);
+            const res = await client.do<UpdateTaskRequest, UpdateTaskResponse>("updateTask", req);
             vorpal.log(printPlan(res.plan));
         });
 
     vorpal
         .command("plan:suspend-task <taskId>")
         .description("Suspend a repeating task")
-        .actionWithAuth(async (vorpal: Vorpal, args: Args, ctx: Context) => {
+        .actionWithAuth(async (vorpal: Vorpal, args: Args) => {
             const taskId = Number.parseInt(args.taskId);
 
             const req = {
                 taskId: taskId,
                 isSuspended: true
             };
-            const res = await service.updateTask(ctx, req);
+            const res = await client.do<UpdateTaskRequest, UpdateTaskResponse>("updateTask", req);
             vorpal.log(printPlan(res.plan));
         });
 
     vorpal
         .command("plan:unsuspend-task <taskId>")
         .description("Suspend a repeating task")
-        .actionWithAuth(async (vorpal: Vorpal, args: Args, ctx: Context) => {
+        .actionWithAuth(async (vorpal: Vorpal, args: Args) => {
             const taskId = Number.parseInt(args.taskId);
 
             const req = {
                 taskId: taskId,
                 isSuspended: false
             };
-            const res = await service.updateTask(ctx, req);
+            const res = await client.do<UpdateTaskRequest, UpdateTaskResponse>("updateTask", req);
             vorpal.log(printPlan(res.plan));
         });
 
     vorpal
         .command("plan:archive-task <taskId>")
         .description("Archive a given task")
-        .actionWithAuth(async (vorpal: Vorpal, args: Args, ctx: Context) => {
+        .actionWithAuth(async (vorpal: Vorpal, args: Args) => {
             const taskId = Number.parseInt(args.taskId);
 
             const req = {
                 taskId: taskId
             };
-            const res = await service.archiveTask(ctx, req);
+            const res = await client.do<ArchiveTaskRequest, ArchiveTaskResponse>("archiveTask", req);
             vorpal.log(printPlan(res.plan));
         });
 
@@ -712,7 +761,7 @@ async function main() {
         .description("Add a new subtask to a task")
         .option("-c, --childOf <parentSubTaskId>", "The subtask of taskId to nest this one under")
         .types({ string: [ "c", "childOf" ]})
-        .actionWithAuth(async (vorpal: Vorpal, args: Args, ctx: Context) => {
+        .actionWithAuth(async (vorpal: Vorpal, args: Args) => {
             const taskId = Number.parseInt(args.taskId);
             const title = args.title.join(" ");
             const parentSubTaskId = args.options.childOf ? Number.parseInt(args.options.childOf) : undefined;
@@ -722,7 +771,7 @@ async function main() {
                 title: title,
                 parentSubTaskId: parentSubTaskId
             };
-            const res = await service.createSubTask(ctx, req);
+            const res = await client.do<CreateSubTaskRequest, CreateSubTaskResponse>("createSubTask", req);
             vorpal.log(printPlan(res.plan));
         });
 
@@ -733,7 +782,7 @@ async function main() {
         .option("-c, --childOf <parentSubTaskId>", "The subtask to nest this one under")
         .option("-p, --position <position>", "The position to move the subtask to")
         .types({ string: [ "c", "childOf", "s", "subtaskChildOf", "p", "position" ]})
-        .actionWithAuth(async (vorpal: Vorpal, args: Args, ctx: Context) => {
+        .actionWithAuth(async (vorpal: Vorpal, args: Args) => {
             const subTaskId = Number.parseInt(args.subTaskId);
             const moveToTopLevel = args.options.toplevel !== undefined;
             const parentSubTaskId = args.options.childOf ? Number.parseInt(args.options.childOf) : undefined;
@@ -745,14 +794,14 @@ async function main() {
                 parentSubTaskId: parentSubTaskId,
                 position: position
             };
-            const res = await service.moveSubTask(ctx, req);
+            const res = await client.do<MoveSubTaskRequest, MoveSubTaskResponse>("moveSubTask", req);
             vorpal.log(printPlan(res.plan));
         });
 
     vorpal
         .command("plan:set-subtask-title <subTaskId> <title...>")
         .description("Change the name of a subtask")
-        .actionWithAuth(async (vorpal: Vorpal, args: Args, ctx: Context) => {
+        .actionWithAuth(async (vorpal: Vorpal, args: Args) => {
             const subTaskId = Number.parseInt(args.subTaskId);
             const title = args.title.join(" ");
 
@@ -760,27 +809,27 @@ async function main() {
                 subTaskId: subTaskId,
                 title: title
             };
-            const res = await service.updateSubTask(ctx, req);
+            const res = await client.do<UpdateSubTaskRequest, UpdateSubTaskResponse>("updateSubTask", req);
             vorpal.log(printPlan(res.plan));
         });
 
     vorpal
         .command("plan:archive-subtask <subTaskId>")
         .description("Archive a given subtask")
-        .actionWithAuth(async (vorpal: Vorpal, args: Args, ctx: Context) => {
+        .actionWithAuth(async (vorpal: Vorpal, args: Args) => {
             const subTaskId = Number.parseInt(args.subTaskId);
 
             const req = {
                 subTaskId: subTaskId
             };
-            const res = await service.archiveSubTask(ctx, req);
+            const res = await client.do<ArchiveSubTaskRequest, ArchiveSubTaskResponse>("archiveSubTask", req);
             vorpal.log(printPlan(res.plan));
         });
 
     vorpal
         .command("plan:set-counter-task-config <taskId> <config>")
         .description("Change the configuration of a counter task")
-        .actionWithAuth(async (vorpal: Vorpal, args: Args, ctx: Context) => {
+        .actionWithAuth(async (vorpal: Vorpal, args: Args) => {
             const taskId = Number.parseInt(args.taskId);
             const counterPolicy = parseCounterPolicy(args.config);
 
@@ -789,14 +838,14 @@ async function main() {
                 counterPolicy: counterPolicy
             };
 
-            const res = await service.updateTask(ctx, req);
+            const res = await client.do<UpdateTaskRequest, UpdateTaskResponse>("updateTask", req);
             vorpal.log(printPlan(res.plan));
         });
 
     vorpal
         .command("plan:set-gauge-task-config <taskId> <config>")
         .description("Change the configuration of a gauge task")
-        .actionWithAuth(async (vorpal: Vorpal, args: Args, ctx: Context) => {
+        .actionWithAuth(async (vorpal: Vorpal, args: Args) => {
             const taskId = Number.parseInt(args.taskId);
             const gaugePolicy = parseGaugePolicy(args.config);
 
@@ -805,68 +854,68 @@ async function main() {
                 gaugePolicy: gaugePolicy
             };
 
-            const res = await service.updateTask(ctx, req);
+            const res = await client.do<UpdateTaskRequest, UpdateTaskResponse>("updateTask", req);
             vorpal.log(printPlan(res.plan));
         });
 
     vorpal
         .command("schedule:show")
         .description("Displays the current schedule")
-        .actionWithAuth(async (vorpal: Vorpal, _args: Args, ctx: Context) => {
+        .actionWithAuth(async (vorpal: Vorpal, _args: Args) => {
             const req = {};
-            const res = await service.getLatestSchedule(ctx, req);
+            const res = await client.do<GetLatestScheduleRequest, GetLatestScheduleResponse>("getLatestSchedule", req);
             vorpal.log(printSchedule(res.schedule, res.plan));
         });
 
     vorpal
         .command("schedule:increment-metric <metricId>")
         .description("Increment a counter metric")
-        .actionWithAuth(async (vorpal: Vorpal, args: Args, ctx: Context) => {
+        .actionWithAuth(async (vorpal: Vorpal, args: Args) => {
             const metricId = Number.parseInt(args.metricId);
             const req = {
                 metricId: metricId
             };
-            const res = await service.incrementMetric(ctx, req);
+            const res = await client.do<IncrementMetricRequest, IncrementMetricResponse>("incrementMetric", req);
             vorpal.log(printSchedule(res.schedule, res.plan));
         });
 
     vorpal
         .command("schedule:record-metric <metricId> <value>")
         .description("Record a new value for a gauge metric")
-        .actionWithAuth(async (vorpal: Vorpal, args: Args, ctx: Context) => {
+        .actionWithAuth(async (vorpal: Vorpal, args: Args) => {
             const metricId = Number.parseInt(args.metricId);
             const value = Number.parseFloat(args.value);
             const req = {
                 metricId: metricId,
                 value: value
             };
-            const res = await service.recordForMetric(ctx, req);
+            const res = await client.do<RecordForMetricRequest, RecordForMetricResponse>("recordForMetric", req);
             vorpal.log(printSchedule(res.schedule, res.plan));
         });
 
     vorpal
         .command("schedule:mark-task-as-in-progress <scheduledTaskEntryId>")
         .description("Marks a task as in progress")
-        .actionWithAuth(async (vorpal: Vorpal, args: Args, ctx: Context) => {
+        .actionWithAuth(async (vorpal: Vorpal, args: Args) => {
             const scheduledTaskEntryId = Number.parseInt(args.scheduledTaskEntryId);
             const req = {
                 scheduledTaskEntryId: scheduledTaskEntryId,
                 inProgress: true
             };
-            const res = await service.updateScheduledTaskEntry(ctx, req);
+            const res = await client.do<UpdateScheduledTaskEntryRequest, UpdateScheduledTaskEntryResponse>("updateScheduledTaskEntry", req);
             vorpal.log(printSchedule(res.schedule, res.plan));
         });
 
     vorpal
         .command("schedule:unmark-task-as-in-progress <scheduledTaskEntryId>")
         .description("Marks a task as in progress")
-        .actionWithAuth(async (vorpal: Vorpal, args: Args, ctx: Context) => {
+        .actionWithAuth(async (vorpal: Vorpal, args: Args) => {
             const scheduledTaskEntryId = Number.parseInt(args.scheduledTaskEntryId);
             const req = {
                 scheduledTaskEntryId: scheduledTaskEntryId,
                 inProgress: false
             };
-            const res = await service.updateScheduledTaskEntry(ctx, req);
+            const res = await client.do<UpdateScheduledTaskEntryRequest, UpdateScheduledTaskEntryResponse>("updateScheduledTaskEntry", req);
             vorpal.log(printSchedule(res.schedule, res.plan));
         });
 
@@ -874,26 +923,26 @@ async function main() {
     vorpal
         .command("schedule:mark-task-as-done <scheduledTaskEntryId>")
         .description("Marks a task as done")
-        .actionWithAuth(async (vorpal: Vorpal, args: Args, ctx: Context) => {
+        .actionWithAuth(async (vorpal: Vorpal, args: Args) => {
             const scheduledTaskEntryId = Number.parseInt(args.scheduledTaskEntryId);
             const req = {
                 scheduledTaskEntryId: scheduledTaskEntryId
             };
-            const res = await service.markTaskAsDone(ctx, req);
+            const res = await client.do<MarkTaskAsDoneRequest, MarkTaskAsDoneResponse>("markTaskAsDone", req);
             vorpal.log(printSchedule(res.schedule, res.plan));
         });
 
     vorpal
         .command("schedule:mark-subtask-as-done <scheduledTaskEntryId> <subTaskId>")
         .description("Mark a subtask as done")
-        .actionWithAuth(async (vorpal: Vorpal, args: Args, ctx: Context) => {
+        .actionWithAuth(async (vorpal: Vorpal, args: Args) => {
             const scheduledTaskEntryId = Number.parseInt(args.scheduledTaskEntryId);
             const subTaskId = Number.parseInt(args.subTaskId);
             const req = {
                 scheduledTaskEntryId: scheduledTaskEntryId,
                 subTaskId: subTaskId
             };
-            const res = await service.markSubTaskAsDone(ctx, req);
+            const res = await client.do<MarkSubTaskAsDoneRequest, MarkSubTaskAsDoneResponse>("markSubTaskAsDone", req);
             vorpal.log(printSchedule(res.schedule, res.plan));
         });
 
@@ -901,28 +950,28 @@ async function main() {
         .command("schedule:increment-counter-task <scheduledTaskEntryId>")
         .description("Increment the value for a counter task")
         .option("-i, --increment <increment>", "How much to increment the counter. Defaults to 1")
-        .actionWithAuth(async (vorpal: Vorpal, args: Args, ctx: Context) => {
+        .actionWithAuth(async (vorpal: Vorpal, args: Args) => {
             const scheduledTaskEntryId = Number.parseInt(args.scheduledTaskEntryId);
             const increment = args.options.increment !== undefined ? Number.parseInt(args.options.increment) : undefined;
             const req = {
                 scheduledTaskEntryId: scheduledTaskEntryId,
                 increment: increment
             };
-            const res = await service.incrementCounterTask(ctx, req);
+            const res = await client.do<IncrementCounterTaskRequest, IncrementCounterTaskResponse>("incrementCounterTask", req);
             vorpal.log(printSchedule(res.schedule, res.plan));
         });
 
     vorpal
         .command("schedule:set-gauge-task <scheduledTaskEntryId> <level>")
         .description("Increment the value for a counter task")
-        .actionWithAuth(async (vorpal: Vorpal, args: Args, ctx: Context) => {
+        .actionWithAuth(async (vorpal: Vorpal, args: Args) => {
             const scheduledTaskEntryId = Number.parseInt(args.scheduledTaskEntryId);
             const level = Number.parseInt(args.level);
             const req = {
                 scheduledTaskEntryId: scheduledTaskEntryId,
                 level: level
             };
-            const res = await service.setGaugeTask(ctx, req);
+            const res = await client.do<SetGaugeTaskRequest, SetGaugeTaskResponse>("setGaugeTask", req);
             vorpal.log(printSchedule(res.schedule, res.plan));
         });
 
@@ -931,20 +980,20 @@ async function main() {
         .show();
 }
 
-async function getUserAuthInfoFromLocalStorage(): Promise<AuthInfo | null> {
+async function getUserAuthInfoFromLocalStorage(): Promise<string | undefined> {
     const authInfoPath = buildAuthInfoLocalStoragePath();
     try {
-        return await fs.readJson(authInfoPath, { encoding: "utf-8" }) as AuthInfo;
+        return await fs.readFile(authInfoPath, { encoding: "utf-8" });
     } catch (e) {
-        return null;
+        return undefined;
     }
 }
 
-async function saveUserAuthInfoToLocalStorage(authInfo: AuthInfo): Promise<void> {
+async function saveUserAuthInfoToLocalStorage(authInfoToken: string): Promise<void> {
     const authInfoPath = buildAuthInfoLocalStoragePath();
     await fs.ensureFile(authInfoPath);
     await fs.chmod(authInfoPath, "0600")
-    await fs.writeJson(authInfoPath, authInfo, { encoding: "utf-8" });
+    await fs.writeFile(authInfoPath, authInfoToken, { encoding: "utf-8" });
 }
 
 async function clearUserAuthInfoFromLocalStorage() {
@@ -984,7 +1033,7 @@ function printPlan(plan: Plan): string {
     res.push(`id=${plan.id} ${plan.isSuspended ? "s" : ""}`);
 
     for (const goalId of plan.goalsOrder) {
-        const goal = plan.goalsById.get(goalId) as Goal;
+        const goal = plan.goals.find(g => g.id === goalId) as Goal;
         res.push(printGoal(goal));
     }
 
@@ -1002,7 +1051,7 @@ function printGoal(goal: Goal, indent: number = 0): string {
         res.push(`${indentStr}  subgoals:`);
 
         for (const subGoalId of goal.subgoalsOrder) {
-            const subGoal = goal.subgoalsById.get(subGoalId) as Goal;
+            const subGoal = goal.subgoals.find(sg => sg.id === subGoalId) as Goal;
             res.push(printGoal(subGoal, indent + 2));
         }
     }
@@ -1011,7 +1060,7 @@ function printGoal(goal: Goal, indent: number = 0): string {
         res.push(`${indentStr}  metrics:`);
 
         for (const metricId of goal.metricsOrder) {
-            const metric = goal.metricsById.get(metricId) as Metric;
+            const metric = goal.metrics.find(m => m.id === metricId) as Metric;
             res.push(`${indentStr}    [${metric.id}] ${metric.type === MetricType.GAUGE ? 'g' : 'c'} ${metric.title}`);
         }
     }
@@ -1020,7 +1069,7 @@ function printGoal(goal: Goal, indent: number = 0): string {
         res.push(`${indentStr}  tasks:`);
 
         for (const taskId of goal.tasksOrder) {
-            const task = goal.tasksById.get(taskId) as Task;
+            const task = goal.tasks.find(t => t.id === taskId) as Task;
             res.push(printTask(task, indent));
 
         }
@@ -1044,7 +1093,7 @@ function printTask(task: Task, indent: number): string {
                 res.push(`${indentStr}      subtasks:`);
 
                 for (const subTaskId of substasksPolicy.subTasksOrder) {
-                    const subTask = substasksPolicy.subTasksById.get(subTaskId) as SubTask;
+                    const subTask = substasksPolicy.subTasks.find(st => st.id === subTaskId) as SubTask;
                     res.push(printSubTask(subTask, indent + 8));
                 }
             }
@@ -1067,7 +1116,7 @@ function printSubTask(subTask: SubTask, indent: number): string {
 
     if (subTask.subTasksOrder.length > 0) {
         for (const subSubTaskId of subTask.subTasksOrder) {
-            const subSubTask = subTask.subTasksById.get(subSubTaskId) as SubTask;
+            const subSubTask = subTask.subTasks.find(st => st.id === subSubTaskId) as SubTask;
             res.push(printSubTask(subSubTask, indent + 2));
         }
     }
@@ -1077,7 +1126,7 @@ function printSubTask(subTask: SubTask, indent: number): string {
 
 function printSchedule(schedule: Schedule, plan: Plan): string {
     const res = [];
-    
+
     res.push(`id=${schedule.id}`);
 
     if (schedule.collectedMetrics.length > 0) {
@@ -1104,7 +1153,7 @@ function printSchedule(schedule: Schedule, plan: Plan): string {
 function printCollectedMetric(collectedMetric: CollectedMetric, plan: Plan): string {
     const res = [];
 
-    const metric = plan.metricsById.get(collectedMetric.metricId);
+    const metric = plan.goals.map(g => g.metrics.find(m => m.id === collectedMetric.metricId)).find(m => m !== undefined);
     if (metric === undefined) {
         throw new Error(`Cannot find metric for ${collectedMetric.metricId}`);
     }
@@ -1121,7 +1170,7 @@ function printCollectedMetric(collectedMetric: CollectedMetric, plan: Plan): str
 function printScheduledTask(scheduledTask: ScheduledTask, plan: Plan): string {
     const res = [];
 
-    const task = plan.tasksById.get(scheduledTask.taskId);
+    const task = plan.goals.map(g => g.tasks.find(t => t.id === scheduledTask.taskId)).find(t => t !== undefined);
     if (task === undefined) {
         throw new Error(`Cannot find task for ${scheduledTask.taskId}`);
     }
