@@ -1,0 +1,9 @@
+{
+  "extends": "../../tsconfig.base",
+  "references": [
+    { "path": "../shared" }
+  ],
+  "include": [
+    "**/*.ts"
+  ]
+}
