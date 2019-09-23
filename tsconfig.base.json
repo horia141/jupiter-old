@@ -13,11 +13,9 @@
         "emitDecoratorMetadata": true,
         "experimentalDecorators": true,
         "jsx": "react",
-        "outDir": ".build/server"
+        "outDir": ".build"
     },
-    "include": [
-        "./src/**/*.ts"
-    ],
+    "include": [ ],
     "exclude": [
         "./node_modules",
         "./migrations"
