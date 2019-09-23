@@ -11,8 +11,8 @@
 .env
 .DS_Store
 .nyc_output
-config/*.secrets
-config/*.json
+src/server/config/*.secrets
+src/server/config/*.json
 .terraform
 .idea
 

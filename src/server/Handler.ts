@@ -159,7 +159,6 @@ export class Handler {
     ];
 
     private static readonly BCRYPT_ROUNDS = 10;
-    public static readonly AUTH_TOKEN_ENCRYPTION_KEY = "Big Secret";
 
     public constructor(
         private readonly conn: knex) {

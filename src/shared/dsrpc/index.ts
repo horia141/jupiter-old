@@ -224,15 +224,20 @@ export function rpcNeedsAuth<Auth, Req extends RpcReq, Res extends RpcRes>(proto
     return descriptor;
 }
 
+export interface ServiceServerConfig {
+
+    authTokenLifeHours: number;
+    authTokenEncryptionKey: string;
+}
+
 export class ServiceServer {
 
-    private static readonly AUTH_TOKEN_LIFE_HOURS = 4;
-    private static readonly AUTH_TOKEN_ENCRYPTION_KEY = "Big Secret";
     public static readonly AUTH_TOKEN_HEADER = "X-DSRPC-AUTH-TOKEN".toLowerCase();
 
     private readonly handlerMap: ServiceHandlerMap;
 
     public constructor(
+        private readonly config: ServiceServerConfig,
         private readonly handler: object) {
 
         const proto = Object.getPrototypeOf(this.handler);
@@ -301,7 +306,7 @@ export class ServiceServer {
                 if (authToken !== undefined) {
                     try {
                         auth = await new Promise<any>((resolve, reject) => {
-                            jwt.verify(authToken, ServiceServer.AUTH_TOKEN_ENCRYPTION_KEY, {}, (err: VerifyErrors, jwtDecoded: object | string) => {
+                            jwt.verify(authToken, this.config.authTokenEncryptionKey, {}, (err: VerifyErrors, jwtDecoded: object | string) => {
                                 if (err) {
                                     return reject(err);
                                 } else if (jwtDecoded instanceof String) {
@@ -341,12 +346,12 @@ export class ServiceServer {
                         const jwtPayload = {
                             auth: ctx.getAuth(),
                             iat: ctx.getRightNow().unix(),
-                            exp: ctx.getRightNow().add(ServiceServer.AUTH_TOKEN_LIFE_HOURS, "hours").unix()
+                            exp: ctx.getRightNow().add(this.config.authTokenLifeHours, "hours").unix()
                         };
 
                         const token = await new Promise<string>((resolve, reject) => {
 
-                            jwt.sign(jwtPayload, ServiceServer.AUTH_TOKEN_ENCRYPTION_KEY, (err, jwtEncoded) => {
+                            jwt.sign(jwtPayload, this.config.authTokenEncryptionKey, (err, jwtEncoded) => {
                                 if (err) {
                                     return reject(new Error("Could not create auth token"));
                                 }

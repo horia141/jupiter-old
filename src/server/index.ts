@@ -20,7 +20,10 @@ function main() {
     const app = express();
 
     const handler = new Handler(conn);
-    const server = new ServiceServer(handler);
+    const server = new ServiceServer({
+        authTokenLifeHours: Number.parseInt(process.env.AUTH_TOKEN_LIFE_HOURS as string),
+        authTokenEncryptionKey: process.env.AUTH_TOKEN_ENCRYPTION_KEY as string
+    }, handler);
 
     app.use("/api", server.buildRouter());
 
