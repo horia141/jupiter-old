@@ -1,5 +1,9 @@
 {
-  "extends": "../../tsconfig.base",
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "../../.build/shared",
+    "composite": true
+  },
   "include": [
     "**/*.ts"
   ]

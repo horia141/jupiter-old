@@ -12,8 +12,7 @@
         "skipLibCheck": true,
         "emitDecoratorMetadata": true,
         "experimentalDecorators": true,
-        "jsx": "react",
-        "outDir": ".build"
+        "jsx": "react"
     },
     "include": [ ],
     "exclude": [
