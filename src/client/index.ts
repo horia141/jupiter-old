@@ -140,12 +140,11 @@ async function main() {
         .description("Registers a new user")
         .option("--domain <domain>", "To which domain to connect to")
         .action(async function (this: Vorpal, args: Args) {
-            const email = args.email;
-            const password = args.password;
+            const email = String(args.email);
+            const password = String(args.password);
             const domain = args.options.domain as string || userConfig.domain;
 
             if (userConfig.domain !== domain) {
-                console.log("here");
                 userConfig.domain = domain;
                 client = ServiceClient.build(`http://${userConfig.domain}/api`, userAuthToken);
                 await saveUserConfigToLocalStorage(userConfig);
