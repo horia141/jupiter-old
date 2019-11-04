@@ -27,7 +27,7 @@ function main() {
 
     app.use("/api", server.buildRouter());
 
-    app.listen(3000, () => {
+    app.listen(3001, () => {
         console.log("Started ...");
     });
 }

@@ -109,14 +109,20 @@ declare module "vorpal" {
 }
 
 const STANDARD_DATE_FORMAT = "YYYY-MM-DD hh:mm UTC";
+const DEFAULT_DOMAIN = "localhost:3000";
 const HOME_CONF_PATH = ".jupiter";
+
+interface UserConfig {
+    domain: string;
+}
 
 async function main() {
 
     const vorpal = (Vorpal as any)();
 
     let userAuthToken: string | undefined = await getUserAuthInfoFromLocalStorage();
-    const client = ServiceClient.build("http://localhost:3000/api", userAuthToken);
+    let userConfig: UserConfig = await getUserConfigFromLocalStorage();
+    let client = ServiceClient.build(`http://${userConfig.domain}/api`, userAuthToken);
 
     Command.prototype.actionWithAuth = function (this: Vorpal.Command, handler: (vorpal: Vorpal, args: Args) => Promise<void>) {
         return this.action(async function (this: Vorpal, args: Args) {
@@ -130,26 +136,20 @@ async function main() {
 
     vorpal
         .command("user:register <email> <password>")
+        .alias("user:login")
         .description("Registers a new user")
+        .option("--domain <domain>", "To which domain to connect to")
         .action(async function (this: Vorpal, args: Args) {
             const email = args.email;
             const password = args.password;
+            const domain = args.options.domain as string || userConfig.domain;
 
-            const req = {
-                email: email,
-                password: password
-            };
-            const res = await client.do<GetOrCreateUserRequest, GetOrCreateUserResponse>("getOrCreateUser", req);
-            await saveUserAuthInfoToLocalStorage(client.getAuthToken());
-            vorpal.log(printUser(res.user));
-        });
-
-    vorpal
-        .command("user:login <email> <password>")
-        .description("Login as a user")
-        .action(async function (this: Vorpal, args: Args) {
-            const email = args.email;
-            const password = args.password;
+            if (userConfig.domain !== domain) {
+                console.log("here");
+                userConfig.domain = domain;
+                client = ServiceClient.build(`http://${userConfig.domain}/api`, userAuthToken);
+                await saveUserConfigToLocalStorage(userConfig);
+            }
 
             const req = {
                 email: email,
@@ -980,6 +980,27 @@ async function main() {
         .show();
 }
 
+async function getUserConfigFromLocalStorage(): Promise<UserConfig> {
+    const userConfigPath = buildUserConfigLocalStoragePath();
+    try {
+        return await fs.readJson(userConfigPath, { encoding: "utf-8" }) as UserConfig;
+    } catch (e) {
+        return {
+            domain: DEFAULT_DOMAIN
+        };
+    }
+}
+
+async function saveUserConfigToLocalStorage(userConfig: UserConfig): Promise<void> {
+    const userConfigPath = buildUserConfigLocalStoragePath();
+    await fs.ensureFile(userConfigPath);
+    await fs.writeJson(userConfigPath, userConfig);
+}
+
+function buildUserConfigLocalStoragePath(): string {
+    return path.join(os.homedir(), HOME_CONF_PATH, "user-config");
+}
+
 async function getUserAuthInfoFromLocalStorage(): Promise<string | undefined> {
     const authInfoPath = buildAuthInfoLocalStoragePath();
     try {
@@ -992,7 +1013,7 @@ async function getUserAuthInfoFromLocalStorage(): Promise<string | undefined> {
 async function saveUserAuthInfoToLocalStorage(authInfoToken: string): Promise<void> {
     const authInfoPath = buildAuthInfoLocalStoragePath();
     await fs.ensureFile(authInfoPath);
-    await fs.chmod(authInfoPath, "0600")
+    await fs.chmod(authInfoPath, "0600");
     await fs.writeFile(authInfoPath, authInfoToken, { encoding: "utf-8" });
 }
 
